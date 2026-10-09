@@ -1,0 +1,5 @@
+interface:
+  display_name: "Humanizer"
+  short_description: "Make English and Russian prose natural without changing its meaning or commitments."
+  icon: "assets/icon.svg"
+  default_prompt: "Use Humanizer to edit my prose naturally while preserving source meaning, facts, commitments, conditions, deadlines, and uncertainty."

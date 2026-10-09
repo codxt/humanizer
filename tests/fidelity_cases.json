@@ -1,0 +1,77 @@
+{
+  "purpose": "Manual semantic regression fixtures. Give a performer only the input and task, then compare the output against protected meanings; exact wording is not required.",
+  "cases": [
+    {
+      "id": "en_unknown_actor",
+      "task": "Polish this customer reply.",
+      "input": "We understand your concern about the £22 fee charged to your account. We consider it consistent with the published tariff. We can waive it as a goodwill gesture if you choose to close the account. The waiver has not been approved yet.",
+      "protect": ["Actor who charged the fee is not stated", "£22 fee", "Speaker considers tariff consistent", "Goodwill framing", "Closure condition", "Possible waiver, not approved"]
+    },
+    {
+      "id": "ru_unknown_actor",
+      "task": "Отредактируй ответ клиенту.",
+      "input": "Понимаем Вашу обеспокоенность комиссией 2 200 ₽, списанной со счёта. Считаем её соответствующей опубликованному тарифу. Можем отменить её в качестве жеста доброй воли, если Вы решите закрыть счёт. Отмену комиссии пока не согласовали.",
+      "protect": ["Исполнитель списания не указан", "Комиссия 2 200 ₽", "Оценка соответствия тарифу принадлежит автору", "Жест доброй воли", "Условие закрытия счёта", "Возможность отмены без согласованного решения"]
+    },
+    {
+      "id": "en_known_actor",
+      "task": "Polish this customer reply.",
+      "input": "We charged the £22 fee to your account. We consider it consistent with the published tariff. We can review it if you send the statement by Friday.",
+      "protect": ["Speaker charged £22", "Speaker considers tariff consistent", "Possible review", "Statement required by Friday", "No promised reversal"]
+    },
+    {
+      "id": "ru_known_actor",
+      "task": "Отредактируй ответ клиенту.",
+      "input": "Мы списали комиссию 2 200 ₽ с Вашего счёта. Считаем её соответствующей опубликованному тарифу. Можем пересмотреть её, если Вы пришлёте выписку до пятницы.",
+      "protect": ["Автор списал 2 200 ₽", "Оценка соответствия тарифу принадлежит автору", "Возможность пересмотра", "Выписка до пятницы", "Отмена не обещана"]
+    },
+    {
+      "id": "en_comparison_evidence",
+      "task": "Polish this report passage, preserving its evidence and claims.",
+      "input": "The table below compares the measurements. Based on the supplied logs, A completed in 12 seconds and B in 18 seconds. These timings are unverified outside staging. C was fastest in the earlier pilot; D and E started at the same time. That distinction matters.",
+      "protect": ["Supplied-log attribution", "A 12 seconds, B 18 seconds", "Not verified outside staging", "C fastest in earlier pilot", "D and E simultaneous"]
+    },
+    {
+      "id": "ru_comparison_evidence",
+      "task": "Отредактируй абзац отчёта, сохранив сведения.",
+      "input": "В таблице ниже сравниваются замеры. По предоставленным журналам A завершился за 12 секунд, B — за 18 секунд. За пределами тестовой среды эти замеры не проверены. C был самым быстрым в предыдущем пилоте; D и E запустились одновременно. В этом и заключается главное.",
+      "protect": ["Атрибуция предоставленным журналам", "A 12 секунд, B 18 секунд", "Вне тестовой среды не проверено", "C самый быстрый в предыдущем пилоте", "D и E одновременно"]
+    },
+    {
+      "id": "en_actual_boundary",
+      "task": "Polish this passage.",
+      "input": "The report covers three separate risks: fire, flooding, and electrical failure. Inspections are scheduled for 10–12 October. This isn't approval to enter the site; it is permission to request access. We may decline that request.",
+      "protect": ["All three distinct risks", "10–12 October range", "Permission to request, no entry approval", "May decline"]
+    },
+    {
+      "id": "ru_actual_boundary",
+      "task": "Отредактируй абзац.",
+      "input": "Отчёт охватывает три отдельных риска: пожар, затопление и отказ электроснабжения. Осмотры запланированы на 10–12 октября. Это не разрешение входить на объект, а разрешение запросить доступ. Мы можем отказать в этом запросе.",
+      "protect": ["Все три разных риска", "Диапазон 10–12 октября", "Разрешение запросить доступ без разрешения входить", "Возможность отказа"]
+    },
+    {
+      "id": "en_attribution_quote",
+      "task": "Polish this passage.",
+      "input": "The analyst is associated with the board; the records do not state in what capacity. As of 9 October, the appointment has not been verified. The client described the proposal as “not just useful, but essential”.",
+      "protect": ["No invented board membership or role", "Records do not specify capacity", "Appointment unverified as of 9 October", "Exact client quotation and attribution"]
+    },
+    {
+      "id": "ru_attribution_quote",
+      "task": "Отредактируй абзац.",
+      "input": "Аналитик связан с советом директоров; в материалах не указано, в каком качестве. По состоянию на 9 октября назначение не подтверждено. Клиент назвал предложение «не просто полезным, а необходимым».",
+      "protect": ["Членство или роль в совете не выдуманы", "В материалах не указано качество связи", "Назначение не подтверждено по состоянию на 9 октября", "Точная цитата клиента с атрибуцией"]
+    },
+    {
+      "id": "en_refund_status",
+      "task": "Polish this customer reply.",
+      "input": "We're refunding £45 to your original payment method. Your bank may take up to five working days to show it.",
+      "protect": ["£45", "Original payment method", "Ongoing refund, not proven completion", "May take up to five working days"]
+    },
+    {
+      "id": "ru_refund_status",
+      "task": "Отредактируй ответ клиенту.",
+      "input": "Мы возвращаем 4 500 ₽ на карту, с которой Вы оплатили заказ. Зачисление может занять до пяти рабочих дней.",
+      "protect": ["4 500 ₽", "Карта исходной оплаты", "Процесс возврата без утверждения завершения", "До пяти рабочих дней как возможность", "Обращение Вы"]
+    }
+  ]
+}

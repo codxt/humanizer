@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Humanizer">
+  <rect width="128" height="128" rx="26" fill="#182a2b"/>
+  <path d="M30 30v68 M98 30v68 M30 64h68" fill="none" stroke="#d9f5e4" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="98" cy="30" r="9" fill="#93e2bd"/>
+</svg>
