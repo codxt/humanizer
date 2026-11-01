@@ -35,6 +35,10 @@ Ask a focused question only when a missing or conflicting fact prevents an accur
 
 Treat author notes as primary only when the user identifies them as the source or asks to compose from them. Keep their reasoning and voice where useful. An AI draft is not evidence for an unsupported fact. Resolve material conflicts from stated source priority or ask; never silently choose the more convenient claim. Editing, shortening, and translation keep the same protection rules. A requested summary may compress detail, but must retain conditions needed to interpret or act on the included claims.
 
+## Generated text from another agent or runtime
+
+When text produced by another agent, runtime, or chat is being filed into a document or repository, treat it as an unverified draft. Trace every material claim to its original source before keeping it; drop or mark what cannot be traced. Run the deterministic lint on the result. Style cleanup does not make generated content accepted knowledge, and a clean lint does not prove fidelity.
+
 ## Voice
 
 Do not automatically load or imitate stored personal voice profiles, historical voice files, or inferred personas. Use a specific personal voice only when the user explicitly requests it or supplies a current task-specific sample. Match the target genre and audience otherwise.

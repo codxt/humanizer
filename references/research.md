@@ -56,10 +56,19 @@ The linked articles and upstream projects remain on their respective websites. T
 
 - **Editorial candidates:** Identify clusters of repeated scaffolding, overclaiming, canned transitions, decorative contrast, and unnecessary narration while preserving meaningful structure and native usage. See [patterns.md](patterns.md) and [language.md](language.md).
 - **Fidelity controls:** Compare source and edit in both directions, protecting actors, commitments, status, conditionality, deadlines, attribution, uncertainty, and stance. See [work-fidelity.md](work-fidelity.md).
-- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The repository includes **12 automated linter tests** and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
+- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The repository includes **20 automated linter tests** and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
 
 ## Use and attribution
 
 These sources are acknowledged to make the editorial basis inspectable. They are not a mandate to copy another author's phrasing, imitate a specific voice without permission, erase legitimate signals of uncertainty, or optimize for AI-detector scores.
 
 For the open-source projects' copyright and MIT notices, see [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Wikipedia material is linked for reference rather than reproduced.
+
+## Engineering-rigor skills
+
+### 7. Lauren Tan, pstack `unslop` skill
+
+- **Source:** [cursor/plugins pstack `unslop` at commit c742dd6](https://github.com/cursor/plugins/blob/c742dd61706fbacc1b95f1a20b7b988cf096ce6c/pstack/skills/unslop/SKILL.md), reviewed 1 November 2026.
+- **Type:** Open-source agent skill (MIT) inside an engineering-rigor plugin.
+- **Used for:** Rules 26 (abstract metaphor nouns), 27 (say what it does, not how it feels), and 33 (over-compression), adapted into `references/patterns.md`, and a report-only lint category for a few abstract nouns.
+- **Limit:** The upstream rules are an author's style list, not an evaluated detector. Its absolute bans on em dashes and mid-sentence colons were not adopted.

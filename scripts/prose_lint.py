@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Report-only prose lint for common AI-pattern candidates.
+"""Prose lint for common AI-pattern candidates.
 
 Usage:
-    python3 -S .agents/skills/humanizer/scripts/prose_lint.py <file> [<file> ...]
+    python3 -S scripts/prose_lint.py [--fail-on LABEL ...] [--github-annotations] <file> [<file> ...]
 
 The script never rewrites text. Matches are review candidates, not proof of AI
-origination and not automatic replacement instructions.
+origination and not automatic replacement instructions. By default every match
+is report-only. `--fail-on LABEL` turns matches of that label into blocking
+findings (exit 1) for CI gates; choose only high-precision labels for that.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from collections import Counter
@@ -17,8 +20,10 @@ from pathlib import Path
 
 
 PATTERNS = [
-    ("chatbot residue", re.compile(r"\b(?:hope this helps|let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update)\b", re.I)),
+    ("chatbot residue", re.compile(r"\b(?:i hope this (?:helps|was helpful)|hope this helps|let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update|great question|as an ai (?:language model|assistant))\b", re.I)),
+    ("russian chatbot residue", re.compile(r"(?<!\w)(?:надеюсь, это (?:поможет|было полезно)|отличный вопрос|давайте разбер[её]мся|как языковая модель|с радостью помогу)(?!\w)", re.I)),
     ("inflated vocabulary", re.compile(r"\b(?:delve|crucial|pivotal|foundational|tapestry|robust|seamless|landscape|realm|vibrant|groundbreaking|transformative)\b", re.I)),
+    ("abstract metaphor noun", re.compile(r"\b(?:substrate|locus|nexus|bedrock|north star|flywheel)s?\b", re.I)),
     ("significance claim", re.compile(r"\b(?:marks? a (?:major |key |pivotal )?(?:shift|turning point|milestone)|statement of intent|new era|broader trend|testament to|underscores? (?:the )?(?:importance|significance))\b", re.I)),
     ("formulaic contrast", re.compile(r"\b(?:not (?:just|only|simply)\b|not\s+[^.!?;:]{1,80}\s+but\s+[^.!?;:]{1,80}|less about\s+[^.!?;:]{1,80}\s+more about)\b", re.I)),
     ("russian formulaic contrast", re.compile(r"\b(?:не просто|не только|не столько|дело не в)\b", re.I)),
@@ -154,14 +159,40 @@ def lint(path: Path) -> list[tuple[int, str, str]]:
     return findings
 
 
+LABELS = frozenset(label for label, _ in PATTERNS) | {
+    "bold-label bullet",
+    "title-case heading",
+    "stacked short-sentence rhythm",
+    "uniform heading geometry",
+}
+
+
+def _annotation_value(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        print("Usage: prose_lint.py <file> [<file> ...]", file=sys.stderr)
+    parser = argparse.ArgumentParser(prog=Path(argv[0]).name if argv else "prose_lint.py")
+    parser.add_argument("files", nargs="+", metavar="file")
+    parser.add_argument("--fail-on", action="append", default=[], metavar="LABEL",
+                        help="treat matches of this label as blocking; repeatable")
+    parser.add_argument("--github-annotations", action="store_true",
+                        help="also print GitHub Actions ::error/::warning annotations")
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit as exc:
+        return 2 if exc.code else 0
+    unknown = sorted(set(args.fail_on) - LABELS)
+    if unknown:
+        print(f"unknown --fail-on label(s): {', '.join(unknown)}; known: {', '.join(sorted(LABELS))}",
+              file=sys.stderr)
         return 2
+    blocking_labels = set(args.fail_on)
 
     total = 0
+    blocking = 0
     had_error = False
-    for raw in argv[1:]:
+    for raw in args.files:
         path = Path(raw)
         if not path.is_file():
             print(f"{path}: not a file", file=sys.stderr)
@@ -176,11 +207,19 @@ def main(argv: list[str]) -> int:
 
         print(f"{path}: {len(findings)} candidate(s)")
         for line, label, excerpt in findings:
-            print(f"  L{line}: {label}: {excerpt}")
+            is_blocking = label in blocking_labels
+            marker = " [blocking]" if is_blocking else ""
+            print(f"  L{line}: {label}{marker}: {excerpt}")
+            if args.github_annotations:
+                level = "error" if is_blocking else "warning"
+                print(f"::{level} file={path},line={line}::{_annotation_value(f'{label}: {excerpt}')}")
+            blocking += is_blocking
         total += len(findings)
 
-    print(f"Total candidates: {total}")
-    return 2 if had_error else 0
+    print(f"Total candidates: {total}; blocking: {blocking}")
+    if had_error:
+        return 2
+    return 1 if blocking else 0
 
 
 if __name__ == "__main__":

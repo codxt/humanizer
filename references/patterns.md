@@ -14,6 +14,10 @@ Professional shorthand such as `outcome`, `operating condition`, `capability`, `
 
 Customer-facing repeat-back test: could a normal buyer explain the sentence to a colleague without first learning our terminology?
 
+Say what a thing does rather than how it feels. `The database stays close at hand` names a feeling; `a column rename fails the build` names the mechanism. If a sentence cannot be restated as a concrete instruction, fact, or number, or could appear unchanged in another project's documents, it says nothing about this one: make it specific from the source or cut it.
+
+Review abstract metaphor nouns that sound technical but hide a plainer word: `substrate`, `locus`, `nexus`, `bedrock`, `north star`, `flywheel`, `wedge`, `vantage`, and `scaffolding`, `harness`, or `ratchet` used as metaphors. Keep a term when the target document defines it or uses it as accepted terminology.
+
 ## Empty framing and chatbot residue
 
 Remove generic scene-setting, reassurance, announcements, summaries, sign-offs, and service phrases that add no information. Keep an author's actual apology, thanks, request, invitation, or relational closing when it carries their intended stance or purpose. Do not add one to make the text warmer. Examples of removable framing include `Here's the thing`, `Let's dive in`, `Hope this helps`, `After careful consideration`, `It is important to note`, `The real question is`, and `At its core` when they perform no real function.
@@ -42,6 +46,10 @@ Remove headings that only restate the next sentence, mechanical bold-label lists
 
 For a reply with supplied conversation context, put the answer, decision, or request where the recipient can find it. Shorten repeated background when the user asked for a concise reply or the context makes that repetition dispensable. Keep new evidence, conditions, deadlines, and any explanation needed to assess the decision. A standalone email or document may need context that a thread reply does not. Do not infer what the reader knows from the genre alone or drop material source claims during an ordinary rewrite.
 
+## Over-compression
+
+Write whole sentences with their articles and verbs. Dropped articles, verbless fragments, arrows, symbol-speak, and private abbreviations make the reader decode instead of read: `Parser rejects bad date → exit 2, no write` becomes `The parser rejects a bad date, exits with code 2, and writes nothing.` Tables, logs, commit subjects, identifiers, and established shorthand of the genre may stay compact. In Russian, the same applies to telegraphic noun chains and dash-linked fragments.
+
 ## Text about its own preparation
 
 Remove redundant narration of assembly, layout, or editing (`the table below compares`, `этот раздел организован по темам`) when the result is already visible. Preserve methodology, provenance, disclosure, evidence limits, version changes, and conventions the reader needs. A dated or source-scoped statement can be essential: `not verified`, `as of 9 October`, and `в доступных источниках не найдено` must not become certainty or disappear as chatbot residue. Reporting limits does not justify adding a plausible explanation.
@@ -57,5 +65,7 @@ Name a relationship only to the precision the source supports. `Associated with 
 ## Source calibration
 
 Reviewed on 2026-10-09: [blader/humanizer 3.1.0](https://github.com/blader/humanizer/blob/225a6f39ac85f76ee48dbad772ea4abe4ed6c9d8/SKILL.md), [work-humanizer](https://github.com/phuryn/work-humanizer/blob/819ac9925fffc20f12931cdf7a447db69163cbb2/skills/work-humanizer/SKILL.md), and Wikipedia's [English](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) and [Russian](https://ru.wikipedia.org/w/index.php?title=Википедия:Признаки_сгенерированности_текста&oldid=155487940) essays. These are sources of editorial candidates, not authority to override this skill's fidelity rules. Wikipedia-specific conventions do not automatically apply to work writing; historical indicators and surface style cannot establish authorship.
+
+Reviewed on 2026-11-01: rules 26, 27, and 33 of Lauren Tan's [pstack `unslop` skill](https://github.com/cursor/plugins/blob/c742dd61706fbacc1b95f1a20b7b988cf096ce6c/pstack/skills/unslop/SKILL.md) (MIT) informed the concrete-language, abstract-noun, and over-compression guidance. Its other rules were already covered here; its absolute bans (no em dashes, no colons mid-sentence) were not adopted, because this skill treats single signals as candidates rather than bans.
 
 Emulate's [public API documentation](https://www.tryemulate.ai/docs/api) and [research note](https://www.tryemulate.ai/research/mode-collapse) were reviewed as vendor descriptions, not as an inspectable skill or independently verified behavior. No hosted service, detector, proprietary model, or paid API is required here.
