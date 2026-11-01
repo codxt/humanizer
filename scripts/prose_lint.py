@@ -7,7 +7,9 @@ Usage:
 The script never rewrites text. Matches are review candidates, not proof of AI
 origination and not automatic replacement instructions. By default every match
 is report-only. `--fail-on LABEL` turns matches of that label into blocking
-findings (exit 1) for CI gates; choose only high-precision labels for that.
+findings (exit 1) for CI gates; choose only high-precision labels such as
+`assistant residue`. Matches inside a blockquote or a same-line quotation are
+marked [quoted] and never block, so preserved quotations stay intact.
 """
 
 from __future__ import annotations
@@ -20,9 +22,9 @@ from pathlib import Path
 
 
 PATTERNS = [
-    ("chatbot residue", re.compile(r"\b(?:i hope this (?:helps|was helpful)|hope this helps|let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update|great question|as an ai (?:language model|assistant))\b", re.I)),
-    ("russian chatbot residue", re.compile(r"(?<!\w)(?:надеюсь, это (?:поможет|было полезно)|отличный вопрос|давайте разбер[её]мся|как языковая модель|с радостью помогу)(?!\w)", re.I)),
-    ("inflated vocabulary", re.compile(r"\b(?:delve|crucial|pivotal|foundational|tapestry|robust|seamless|landscape|realm|vibrant|groundbreaking|transformative)\b", re.I)),
+    ("assistant residue", re.compile(r"(?<!\w)(?:i hope this (?:helps|was helpful)|hope this helps|great question|as an ai (?:language model|assistant)|надеюсь, это (?:поможет|было полезно)|отличный вопрос|как языковая модель)(?!\w)", re.I)),
+    ("chatbot residue", re.compile(r"\b(?:let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update)\b", re.I)),
+    ("russian chatbot residue", re.compile(r"(?<!\w)(?:давайте разбер[её]мся|с радостью помогу)(?!\w)", re.I)),
     ("abstract metaphor noun", re.compile(r"\b(?:substrate|locus|nexus|bedrock|north star|flywheel)s?\b", re.I)),
     ("significance claim", re.compile(r"\b(?:marks? a (?:major |key |pivotal )?(?:shift|turning point|milestone)|statement of intent|new era|broader trend|testament to|underscores? (?:the )?(?:importance|significance))\b", re.I)),
     ("formulaic contrast", re.compile(r"\b(?:not (?:just|only|simply)\b|not\s+[^.!?;:]{1,80}\s+but\s+[^.!?;:]{1,80}|less about\s+[^.!?;:]{1,80}\s+more about)\b", re.I)),
@@ -132,16 +134,40 @@ def uniform_heading_geometry(scan: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-def lint(path: Path) -> list[tuple[int, str, str]]:
+QUOTE_SPAN = re.compile(r"«[^»\n]*»|“[^”\n]*”|„[^“”\n]*[“”]|\"[^\"\n]*\"")
+BLOCKQUOTE = re.compile(r"(?m)^ {0,3}>.*$")
+
+
+def quoted_ranges(scan: str) -> list[tuple[int, int]]:
+    """Offsets of blockquote lines and same-line quotation spans."""
+    ranges = [match.span() for match in BLOCKQUOTE.finditer(scan)]
+    ranges.extend(match.span() for match in QUOTE_SPAN.finditer(scan))
+    return ranges
+
+
+def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
+    """Findings as (line, label, excerpt, quoted); quoted matches sit in a quotation."""
     text = path.read_text(encoding="utf-8")
     scan = strip_code_fences(text)
-    findings: list[tuple[int, str, str]] = []
-
+    ranges = quoted_ranges(scan)
+    detailed: list[tuple[int, str, str, bool]] = []
     for label, pattern in PATTERNS:
         for match in pattern.finditer(scan):
             line = scan.count("\n", 0, match.start()) + 1
             excerpt = " ".join(match.group(0).split())
-            findings.append((line, label, excerpt))
+            quoted = any(start <= match.start() and match.end() <= end for start, end in ranges)
+            detailed.append((line, label, excerpt, quoted))
+    detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan))
+    detailed.sort(key=lambda item: (item[0], item[1], item[2]))
+    return detailed
+
+
+def lint(path: Path) -> list[tuple[int, str, str]]:
+    return [(line, label, excerpt) for line, label, excerpt, _ in lint_detailed(path)]
+
+
+def _structural(scan: str) -> list[tuple[int, str, str]]:
+    findings: list[tuple[int, str, str]] = []
 
     for number, line_text in enumerate(scan.splitlines(), 1):
         if BOLD_LABEL.search(line_text):
@@ -155,7 +181,6 @@ def lint(path: Path) -> list[tuple[int, str, str]]:
         findings.append((line, "stacked short-sentence rhythm", excerpt[:220]))
 
     findings.extend(uniform_heading_geometry(scan))
-    findings.sort(key=lambda item: (item[0], item[1], item[2]))
     return findings
 
 
@@ -169,6 +194,10 @@ LABELS = frozenset(label for label, _ in PATTERNS) | {
 
 def _annotation_value(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _annotation_property(value: str) -> str:
+    return _annotation_value(value).replace(":", "%3A").replace(",", "%2C")
 
 
 def main(argv: list[str]) -> int:
@@ -199,20 +228,21 @@ def main(argv: list[str]) -> int:
             had_error = True
             continue
         try:
-            findings = lint(path)
+            findings = lint_detailed(path)
         except (OSError, UnicodeError) as exc:
             print(f"{path}: {exc}", file=sys.stderr)
             had_error = True
             continue
 
         print(f"{path}: {len(findings)} candidate(s)")
-        for line, label, excerpt in findings:
-            is_blocking = label in blocking_labels
-            marker = " [blocking]" if is_blocking else ""
+        for line, label, excerpt, quoted in findings:
+            is_blocking = label in blocking_labels and not quoted
+            marker = " [blocking]" if is_blocking else (" [quoted]" if quoted else "")
             print(f"  L{line}: {label}{marker}: {excerpt}")
             if args.github_annotations:
                 level = "error" if is_blocking else "warning"
-                print(f"::{level} file={path},line={line}::{_annotation_value(f'{label}: {excerpt}')}")
+                print(f"::{level} file={_annotation_property(str(path))},line={line}::"
+                      f"{_annotation_value(f'{label}: {excerpt}')}")
             blocking += is_blocking
         total += len(findings)
 

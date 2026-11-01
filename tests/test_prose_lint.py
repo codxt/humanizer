@@ -89,12 +89,12 @@ class ProseLintTests(unittest.TestCase):
             return code, out.getvalue(), err.getvalue(), str(path)
 
     def test_fail_on_selected_label_fails(self):
-        code, out, _, _ = self.run_cli("Hope this helps.\n", "--fail-on", "chatbot residue")
+        code, out, _, _ = self.run_cli("Hope this helps.\n", "--fail-on", "assistant residue")
         self.assertEqual(code, 1)
         self.assertIn("blocking", out)
 
     def test_fail_on_ignores_other_labels(self):
-        code, _, _, _ = self.run_cli("That distinction matters.\n", "--fail-on", "chatbot residue")
+        code, _, _, _ = self.run_cli("That distinction matters.\n", "--fail-on", "assistant residue")
         self.assertEqual(code, 0)
 
     def test_fail_on_unknown_label_is_usage_error(self):
@@ -103,26 +103,63 @@ class ProseLintTests(unittest.TestCase):
         self.assertIn("unknown", err)
 
     def test_fail_on_respects_code_fences(self):
-        code, _, _, _ = self.run_cli("```text\nHope this helps.\n```\n", "--fail-on", "chatbot residue")
+        code, _, _, _ = self.run_cli("```text\nHope this helps.\n```\n", "--fail-on", "assistant residue")
         self.assertEqual(code, 0)
 
     def test_github_annotations(self):
         code, out, _, path = self.run_cli(
             "Intro.\nHope this helps.\nThat distinction matters.\n",
-            "--fail-on", "chatbot residue", "--github-annotations",
+            "--fail-on", "assistant residue", "--github-annotations",
         )
         self.assertEqual(code, 1)
-        self.assertIn(f"::error file={path},line=2::chatbot residue: Hope this helps", out)
-        self.assertIn(f"::warning file={path},line=3::restating closer: That distinction matters", out)
+        prop = path.replace("%", "%25").replace(":", "%3A").replace(",", "%2C")
+        self.assertIn(f"::error file={prop},line=2::assistant residue: Hope this helps", out)
+        self.assertIn(f"::warning file={prop},line=3::restating closer: That distinction matters", out)
 
-    def test_russian_chatbot_residue(self):
-        findings = self.scan("Отличный вопрос! Надеюсь, это поможет.\n")
-        labels = [item[1] for item in findings]
-        self.assertEqual(labels.count("russian chatbot residue"), 2)
+    def test_annotation_file_property_is_escaped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "a,b:c.md"
+            path.write_text("Hope this helps.\n", encoding="utf-8")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                lint.main(["prose_lint.py", "--github-annotations", str(path)])
+        line = [item for item in out.getvalue().splitlines() if item.startswith("::")][0]
+        self.assertIn("a%2Cb%3Ac.md,line=1::", line)
 
-    def test_english_chatbot_residue_additions(self):
-        findings = self.scan("Great question. As an AI language model, I cannot.\n")
-        self.assertEqual([item[1] for item in findings].count("chatbot residue"), 2)
+    def test_quoted_match_is_reported_but_not_blocking(self):
+        text = (
+            "> Owner: Hope this helps the team.\n"
+            "The owner wrote «Надеюсь, это поможет» in the brief.\n"
+            'He said "As an AI language model" twice.\n'
+        )
+        code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("[quoted]"), 3)
+
+    def test_unquoted_after_quote_still_blocks(self):
+        code, _, _, _ = self.run_cli('He said "hi". Hope this helps.\n', "--fail-on", "assistant residue")
+        self.assertEqual(code, 1)
+
+    def test_legitimate_prose_passes_strong_label(self):
+        text = (
+            "Уважаемый Иван! С радостью помогу подготовить документы к заседанию.\n"
+            "> Владелец: «Давайте разберёмся в причинах задержки».\n"
+            "The distinction is between a draft and an accepted decision. That distinction matters.\n"
+            "Давайте разберёмся с графиком на следующей неделе.\n"
+        )
+        code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+
+    def test_russian_chatbot_residue_is_report_only_label(self):
+        findings = self.scan("Давайте разберёмся. С радостью помогу.\n")
+        self.assertEqual([item[1] for item in findings].count("russian chatbot residue"), 2)
+
+    def test_assistant_residue(self):
+        findings = self.scan(
+            "Great question. As an AI language model, I cannot. Hope this helps.\n"
+            "Отличный вопрос! Надеюсь, это поможет. Как языковая модель, я не могу.\n"
+        )
+        self.assertEqual([item[1] for item in findings].count("assistant residue"), 6)
 
     def test_abstract_metaphor_noun_is_candidate(self):
         findings = self.scan("The flywheel is the north star of this substrate.\n")
