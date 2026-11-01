@@ -8,8 +8,10 @@ The script never rewrites text. Matches are review candidates, not proof of AI
 origination and not automatic replacement instructions. By default every match
 is report-only. `--fail-on LABEL` turns matches of that label into blocking
 findings (exit 1) for CI gates; choose only high-precision labels such as
-`assistant residue`. Matches inside a blockquote or a same-line quotation are
-marked [quoted] and never block, so preserved quotations stay intact.
+`assistant residue`. Matches inside a closed quotation (straight, «», “”, „“;
+it may span lines within a paragraph) or a blockquote paragraph are marked
+[quoted] and never block, so preserved quotations stay intact. An unclosed
+quotation exempts nothing, and `6"` is read as an inch mark, not a quote.
 """
 
 from __future__ import annotations
@@ -134,14 +136,74 @@ def uniform_heading_geometry(scan: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-QUOTE_SPAN = re.compile(r"«[^»\n]*»|“[^”\n]*”|„[^“”\n]*[“”]|\"[^\"\n]*\"")
-BLOCKQUOTE = re.compile(r"(?m)^ {0,3}>.*$")
+PARAGRAPH = re.compile(r"(?:[^\n]*\S[^\n]*(?:\n|$))+")
+BLOCKQUOTE_START = re.compile(r"^ {0,3}>")
+BLOCK_START = re.compile(r"^ {0,3}(?:#|[-*+] |\d+[.)] |`{3,}|~{3,}|>)")
+CURLY_CLOSERS = {"«": "»", "“": "”", "„": "“”"}
+STRAIGHT_OPEN_AFTER = set("([{«“„—–-/:")
+STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'")
+
+
+def _blockquote_ranges(scan: str) -> list[tuple[int, int]]:
+    """A `>` line and its lazy continuation lines, up to a blank line or a new block."""
+    ranges: list[tuple[int, int]] = []
+    offset = 0
+    inside = False
+    for line in scan.splitlines(keepends=True):
+        if not line.strip():
+            inside = False
+        elif BLOCKQUOTE_START.match(line):
+            inside = True
+        elif inside and BLOCK_START.match(line):
+            inside = False
+        if inside:
+            ranges.append((offset, offset + len(line)))
+        offset += len(line)
+    return ranges
+
+
+def _straight_opener(text: str, i: int) -> bool:
+    before = text[i - 1] if i else ""
+    after = text[i + 1] if i + 1 < len(text) else ""
+    if before == "\\" or not after or after.isspace():
+        return False
+    return before == "" or before.isspace() or before in STRAIGHT_OPEN_AFTER
+
+
+def _straight_closer(text: str, i: int) -> bool:
+    before = text[i - 1] if i else ""
+    after = text[i + 1] if i + 1 < len(text) else ""
+    if before == "\\" or not before or before.isspace():
+        return False
+    return after == "" or after.isspace() or after in STRAIGHT_CLOSE_BEFORE
+
+
+def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
+    """Closed quotations inside one paragraph; an unclosed quotation exempts nothing.
+
+    A straight quote opens only at a word start (not after a digit, so `6"` is an inch
+    mark) and closes only at a word end.
+    """
+    ranges: list[tuple[int, int]] = []
+    stack: list[tuple[str, int]] = []
+    for i, char in enumerate(paragraph):
+        if stack and char in stack[-1][0]:
+            if char != '"' or _straight_closer(paragraph, i):
+                _, start = stack.pop()
+                ranges.append((base + start, base + i + 1))
+                continue
+        if char in CURLY_CLOSERS:
+            stack.append((CURLY_CLOSERS[char], i))
+        elif char == '"' and _straight_opener(paragraph, i):
+            stack.append(('"', i))
+    return ranges
 
 
 def quoted_ranges(scan: str) -> list[tuple[int, int]]:
-    """Offsets of blockquote lines and same-line quotation spans."""
-    ranges = [match.span() for match in BLOCKQUOTE.finditer(scan)]
-    ranges.extend(match.span() for match in QUOTE_SPAN.finditer(scan))
+    """Offsets of blockquote paragraphs and closed quotations (may span lines)."""
+    ranges = _blockquote_ranges(scan)
+    for match in PARAGRAPH.finditer(scan):
+        ranges.extend(_quotation_ranges(match.group(0), match.start()))
     return ranges
 
 

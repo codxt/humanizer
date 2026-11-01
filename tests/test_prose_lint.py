@@ -140,6 +140,45 @@ class ProseLintTests(unittest.TestCase):
         code, _, _, _ = self.run_cli('He said "hi". Hope this helps.\n', "--fail-on", "assistant residue")
         self.assertEqual(code, 1)
 
+    def test_inch_marks_do_not_exempt_residue(self):
+        for text in (
+            'Use a 6" display. Hope this helps. The 12" model also works.\n',
+            'Use the 6" display. Hope this helps. Select "Save" to continue.\n',
+        ):
+            with self.subTest(text=text):
+                code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 1)
+
+    def test_unclosed_quote_does_not_exempt_residue(self):
+        code, _, _, _ = self.run_cli('He wrote "Hope this helps.\n\nNext paragraph.\n', "--fail-on", "assistant residue")
+        self.assertEqual(code, 1)
+
+    def test_multiline_quotations_are_quoted(self):
+        for text in (
+            "The transcript reads: «\nНадеюсь, это поможет.\n»\n",
+            "He wrote “Thanks for the files.\nHope this helps.”\n",
+            'He wrote "Thanks for the files.\nHope this helps."\n',
+            "> The assistant replied:\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 0, out)
+                self.assertIn("[quoted]", out)
+
+    def test_residue_after_quotation_still_blocks(self):
+        for text in (
+            "The transcript reads: «\nСпасибо.\n» Надеюсь, это поможет.\n",
+            "> The assistant replied:\nThanks.\n\nHope this helps.\n",
+            '"Save" it. Hope this helps.\n',
+        ):
+            with self.subTest(text=text):
+                code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 1)
+
+    def test_escaped_straight_quote_is_not_a_delimiter(self):
+        code, _, _, _ = self.run_cli('Type \\"x and Hope this helps \\" end.\n', "--fail-on", "assistant residue")
+        self.assertEqual(code, 1)
+
     def test_legitimate_prose_passes_strong_label(self):
         text = (
             "Уважаемый Иван! С радостью помогу подготовить документы к заседанию.\n"

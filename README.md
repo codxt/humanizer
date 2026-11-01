@@ -46,7 +46,7 @@ python3 scripts/prose_lint.py draft.md
 python3 -m unittest discover -s tests -v
 ```
 
-For a CI gate, make only high-precision labels blocking and keep the rest as review candidates. `--fail-on LABEL` (repeatable) exits 1 when that label matches; `--github-annotations` adds GitHub Actions annotations. `assistant residue` (for example "as an AI language model", "hope this helps", "отличный вопрос") is the label meant for blocking. Text inside code spans and fences is not scanned. A match inside a blockquote or a same-line quotation is reported as `[quoted]` and never blocks, so preserved quotations stay intact.
+For a CI gate, make only high-precision labels blocking and keep the rest as review candidates. `--fail-on LABEL` (repeatable) exits 1 when that label matches; `--github-annotations` adds GitHub Actions annotations. `assistant residue` (for example "as an AI language model", "hope this helps", "отличный вопрос") is the label meant for blocking. Text inside code spans and fences is not scanned. A match inside a closed quotation (straight, «», “”, „“, possibly across lines within a paragraph) or a blockquote paragraph is reported as `[quoted]` and never blocks, so preserved quotations stay intact. An unclosed quotation exempts nothing, and `6"` counts as an inch mark, not a quote.
 
 ```bash
 python3 scripts/prose_lint.py --github-annotations --fail-on "assistant residue" changed.md
