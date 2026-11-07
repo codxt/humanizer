@@ -229,6 +229,21 @@ class ProseLintTests(unittest.TestCase):
         )
         self.assertNotIn("chatbot artifact", self.labels(text))
 
+    def test_inline_code_scanner_matches_reference_regex(self):
+        import random
+        rng = random.Random(7)
+        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "b`c", "````"]
+        for _ in range(5000):
+            text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+            self.assertEqual(lint._inline_code_spans(text),
+                             [match.span() for match in lint.INLINE_CODE.finditer(text)], repr(text))
+
+    def test_long_backtick_runs_are_linear(self):
+        import time
+        start = time.monotonic()
+        lint.code_ranges("`" * 200000 + " a ` b " * 20000)
+        self.assertLess(time.monotonic() - start, 2)
+
     def test_glued_artifact_markers(self):
         text = "Revenue grew in 1998turn0search0. It closed citeturn0news2 later.\n"
         self.assertEqual(self.labels(text).count("chatbot artifact"), 2)

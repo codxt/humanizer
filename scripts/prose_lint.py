@@ -59,7 +59,8 @@ STACKED_SHORT = re.compile(r"(?m)(?:^[^\n.!?]{1,45}[.!?]\s*$\n?){3,}")
 MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
-INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")
+INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")  # reference definition; see _inline_code_spans
+BACKTICK_RUN = re.compile(r"`+")
 URL = re.compile(r"https?://[^\s<>\"«»“”„]+")  # quote marks end a link, so quoted links stay quoted
 
 
@@ -97,9 +98,33 @@ def code_ranges(text: str) -> list[tuple[int, int]]:
         offset += len(line)
     if fence_char:
         ranges.append((block_start, len(text)))
-    fenced = _mask_ranges(text, ranges)
-    ranges.extend(match.span() for match in INLINE_CODE.finditer(fenced))
+    ranges.extend(_inline_code_spans(_mask_ranges(text, ranges)))
     return sorted(ranges)
+
+
+def _inline_code_spans(text: str) -> list[tuple[int, int]]:
+    """Same spans as `INLINE_CODE.finditer`, in linear time: an opening backtick run pairs with
+    the next run of the same length on the same line; an unpaired run opens nothing."""
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        runs = [match.span() for match in BACKTICK_RUN.finditer(line)]
+        following: list[int] = [-1] * len(runs)
+        last_seen: dict[int, int] = {}
+        for index in range(len(runs) - 1, -1, -1):
+            length = runs[index][1] - runs[index][0]
+            following[index] = last_seen.get(length, -1)
+            last_seen[length] = index
+        index = 0
+        while index < len(runs):
+            closer = following[index]
+            if closer < 0:
+                index += 1
+                continue
+            spans.append((offset + runs[index][0], offset + runs[closer][1]))
+            index = closer + 1
+        offset += len(line)
+    return spans
 
 
 def mask_code(text: str, mask_urls: bool = True) -> str:

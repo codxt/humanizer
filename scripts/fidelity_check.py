@@ -9,9 +9,9 @@ changed between SOURCE and EDIT: numbers with their sign and a following
 percent, temperature, time or magnitude unit ("30 days", "10 business days",
 "-5 °C", "1.5 million", "5 %"; other units such as kg or km are not compared),
 numeric dates as ordered parts, currency, month and weekday names, relative
-dates, links and e-mail addresses, code (indentation included), quotations,
-bracketed citations, qualifiers, modal verbs, negation, first-person words,
-apologies and thanks, and names. Each finding gives the count on both sides.
+dates, links and e-mail addresses, code (indentation included, fence tag and
+backtick width ignored), quotations, bracketed citations, qualifiers, modal
+verbs, negation, first-person words, apologies and thanks, and names. Each finding gives the count on both sides.
 
 A finding asks for a sentence-level comparison; it is not proof of drift.
 Removing a stacked hedge or a formulaic "not only" changes counts on purpose,
@@ -57,7 +57,8 @@ MONTHS = [("january", "январ"), ("february", "феврал"), ("march", "м
 DATE_WORDS = _lexicon({
     **{month: stem if stem.endswith("]") else stem + r"\w*" for month, stem in MONTHS},
     "monday": r"monday|понедельник\w*", "tuesday": r"tuesday|вторник\w*",
-    "wednesday": r"wednesday|(?:(?<=в )|(?<=во )|(?<=на ))среду|(?:(?<=до )|(?<=со )|(?<=с )|(?<=после ))среды"
+    "wednesday": r"wednesday|(?:(?<=в )|(?<=во ))(?:(?:эту|ту|прошлую|следующую|ближайшую|каждую) )?среду"
+                 r"|(?<=на )(?:эту|следующую|ближайшую) среду|(?:(?<=до )|(?<=со )|(?<=с )|(?<=после ))среды"
                  r"|(?<=по )средам|(?<=к )среде", "thursday": r"thursday|четверг\w*",
     "friday": r"friday|пятниц\w*", "saturday": r"saturday|суббот\w*",
     "sunday": r"sunday|воскресень\w*",
@@ -102,7 +103,7 @@ NEGATION = _lexicon({key: key for key in [
     "не", "нет", "ни", "никогда", "никто", "ничего", "нигде", "без",
 ]})
 
-# Counted after all-caps tokens are blanked, so "US" is not "us"; "i.e." is not "I".
+# Counted with the token "US" blanked, so the country is not "us"; "i.e." is not "I".
 FIRST_PERSON = _lexicon({
     "i/me/my": r"i(?!\.\w)|me|my|mine|myself",
     "we/us/our": r"we|us|our|ours|ourselves",
@@ -111,9 +112,9 @@ FIRST_PERSON = _lexicon({
 })
 
 SPEECH_ACTS = _lexicon({
-    "apology": r"sorry|apolog(?:y|ies|i[sz](?:e|es|ed|ing))|regret(?:s|ted|ting|tably)?"
+    "apology": r"sorry|apolog(?:y|ies|i[sz](?:e|es|ed|ing))|regret(?:s|ted|ting|tably|ful|fully)?"
                r"|извин\w*|прошу прощения|прости(?:те)?|сожале\w*",
-    "thanks": r"thank(?:s|ed|ing|ful)?|grateful|appreciat(?:e|es|ed|ing)"
+    "thanks": r"thank(?:s|ed|ing|ful)?|grateful|appreciat(?:e|es|ed|ing|ion|ive)"
               r"|благодар\w*|спасибо|признательн\w*",
 })
 
@@ -121,7 +122,7 @@ CURRENCY = [(key, re.compile(pattern)) for key, pattern in {
     "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b|(?<=\d )pounds?\b)",
     "USD": r"\$|\bUSD\b|(?i:\bdollars?\b|(?<!\w)доллар\w*)",
     "EUR": r"€|\bEUR\b|(?i:\beuros?\b|(?<!\w)евро(?!\w))",
-    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|л\w*|(?!\w)))",
+    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|е|ей|ям|ях|ями|и)(?!\w))",
     "KZT": r"₸|\bKZT\b|(?i:\btenge\b|(?<!\w)тенге(?!\w))",
     "AED": r"\bAED\b|(?i:\bdirhams?\b|(?<!\w)дирхам\w*)",
     "CHF": r"\bCHF\b",
@@ -157,10 +158,10 @@ URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]\"«»“”„]+|www\.[^\s<>()
 CITATION = re.compile(r"\[\d+(?:\s*[,–-]\s*\d+)*\]|\[@[\w:.-]+\]|\[\^[\w-]+\]")
 NUMERIC_DATE = re.compile(r"(?<![\d.,/-])(?:\d{1,4}[./]\d{1,2}[./]\d{1,4}|\d{4}-\d{1,2}-\d{1,2})(?![\d.,/-]?\d)")
 NUMBER = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*)")
-ALL_CAPS = re.compile(r"(?<!\w)[A-ZА-ЯЁ]{2,}(?!\w)")
+COUNTRY_US = re.compile(r"(?<!\w)US(?!\w)")
 TOKEN = re.compile(r"\w+(?:['’-]\w+)*")
 OPENERS = set("\"'«“„‘([{*_")
-SENTENCE_END = set(".!?…:;•*#>-–—")
+SENTENCE_END = set(".!?…•*#>-–—")  # a colon does not start a sentence: "Attendees: Anna"
 ABBREVIATIONS = {
     "mr", "mrs", "ms", "dr", "prof", "st", "sr", "jr", "vs", "cf", "e.g", "i.e", "etc", "inc",
     "ltd", "co", "corp", "no", "vol", "fig", "approx", "dept", "gen", "col", "capt", "lt", "gov",
@@ -216,6 +217,8 @@ def _unit_after(prose: str, end: int) -> str:
 
 def _sign_before(prose: str, start: int) -> str:
     if start and prose[start - 1] in "-−+" and (start == 1 or prose[start - 2] in " \t\n([«\"“"):
+        if re.search(r"\d[ \t]+$", prose[max(0, start - 12):start - 1]):
+            return ""  # "10 -20" is a range, not minus twenty
         return "+" if prose[start - 1] == "+" else "-"
     return ""
 
@@ -341,10 +344,22 @@ def _quotations(text: str) -> Counter[str]:
     return items
 
 
+def _code_body(segment: str) -> str:
+    """The code itself: fence lines and inline backtick delimiters removed."""
+    lines = segment.splitlines()
+    if lines and re.match(r" {0,3}(?:`{3,}|~{3,})", lines[0]):
+        lines = lines[1:]
+        if lines and re.fullmatch(r" {0,3}(?:`{3,}|~{3,})[ \t]*", lines[-1]):
+            lines = lines[:-1]
+    else:
+        lines = [segment.strip("`").strip()]
+    return "\n".join(line.rstrip() for line in lines).strip("\n")
+
+
 def _code(text: str) -> Counter[str]:
-    """Code compared line by line; indentation counts, trailing spaces and line endings do not."""
-    return Counter("\n".join(line.rstrip() for line in text[start:end].splitlines()).strip("\n")
-                   for start, end in _lint.code_ranges(text))
+    """Code compared line by line; indentation counts, trailing spaces, line endings, the fence
+    language tag and the inline delimiter width do not."""
+    return Counter(_code_body(text[start:end]) for start, end in _lint.code_ranges(text))
 
 
 def _prose(text: str) -> str:
@@ -373,7 +388,7 @@ def profile(text: str) -> dict[str, Counter[str]]:
         "qualifier": _lexicon_counts(words, QUALIFIERS),
         "modality": _lexicon_counts(words, MODALITY),
         "negation": _lexicon_counts(words, NEGATION),
-        "first person": _lexicon_counts(_normalize_words(ALL_CAPS.sub(_blank, prose)), FIRST_PERSON),
+        "first person": _lexicon_counts(_normalize_words(COUNTRY_US.sub(_blank, prose)), FIRST_PERSON),
         "speech act": _lexicon_counts(words, SPEECH_ACTS),
         "name": Counter(_names(prose)),
     }

@@ -132,6 +132,37 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("added", "name", "сидор"),
                       changes("Подписал И. Петров.", "Подписал И. Сидоров."))
 
+    def test_names_after_a_colon_are_compared(self):
+        self.assertIn(("added", "name", "jane"), changes("Attendees: Anna and John.", "Attendees: Jane and John."))
+        self.assertIn(("added", "name", "jane"),
+                      changes("The signatory was: John Smith.", "The signatory was: Jane Smith."))
+
+    def test_all_caps_first_person_counts(self):
+        self.assertEqual(check.compare("We approved the plan.", "WE APPROVED THE PLAN."), [])
+        self.assertEqual(check.compare("Мы согласны.", "МЫ СОГЛАСНЫ."), [])
+
+    def test_more_speech_act_forms(self):
+        self.assertIn(("lost", "speech act", "thanks"),
+                      changes("We express our appreciation for your patience.", "We acknowledge your patience."))
+        self.assertIn(("lost", "speech act", "apology"),
+                      changes("I regretfully inform you that the date moved.", "I inform you that the date moved."))
+
+    def test_ruble_words_are_specific(self):
+        self.assertEqual(check.compare("Приготовьте рубленую капусту.", "Приготовьте шинкованную капусту."), [])
+        self.assertEqual(check.compare("Сбор 45 рублей.", "Сбор 45 ₽."), [])
+
+    def test_wednesday_phrases(self):
+        self.assertIn(("lost", "date word", "wednesday"), changes("Ответим в эту среду.", "Ответим на этой неделе."))
+        self.assertEqual(check.compare("Влияние на среду велико.", "Влияние на окружающую среду велико."), [])
+
+    def test_code_fence_tag_and_backtick_width_are_style(self):
+        self.assertEqual(check.compare("```python\nx = 1\n```\n", "```py\nx = 1\n```\n"), [])
+        self.assertEqual(check.compare("Run `make` now.", "Run ``make`` now."), [])
+
+    def test_spaced_hyphen_after_number_is_a_range(self):
+        self.assertEqual(check.compare("Pages 10 -20.", "Pages 10-20."), [])
+        self.assertIn(("lost", "number", "-20 °C"), changes("It fell to -20 °C.", "It fell to 20 °C."))
+
     def test_many_quotations_are_fast(self):
         import time
         text = " ".join(f'"quote {i}"' for i in range(4000))
@@ -222,7 +253,7 @@ class FidelityCheckTests(unittest.TestCase):
         edit = "See https://example.org/terms-v2 and run `make check` [4]."
         found = changes(source, edit)
         self.assertIn(("lost", "link", "https://example.org/terms"), found)
-        self.assertIn(("added", "code", "`make check`"), found)
+        self.assertIn(("added", "code", "make check"), found)
         self.assertIn(("lost", "citation", "[3]"), found)
 
     def test_words_inside_code_are_not_prose(self):
