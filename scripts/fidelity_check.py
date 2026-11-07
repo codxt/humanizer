@@ -139,16 +139,17 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("%", r"%|percent|per cent|процент\w*"), ("‰", r"‰"), ("°C", r"°\s?C"), ("°F", r"°\s?F"),
     ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
-    ("millisecond", r"milliseconds?|(?-i:ms|msec)|миллисекунд\w*|мс"),
+    ("millisecond", r"milliseconds?|(?-i:ms|msecs?)|миллисекунд\w*|мс"),
     ("second", r"seconds?|(?-i:s|sec|secs)|секунд\w*|сек\.?"),
     ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
     ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
 ]]
 BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
-GLUED_UNITS = {"ms": "millisecond", "k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
+# Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
+GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
-UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
+UNIT_AFTER = re.compile(r"([^\W\d_]{1,4}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
                         r"((?:(?:business|working|рабоч\w+)\s+)?[^\W\d_]+\.?)")
 
 CONTRACTIONS = [
@@ -212,9 +213,9 @@ def _unit_after(prose: str, end: int) -> str:
     if not match:
         return ""
     glued, symbol, word = match.groups()
-    if glued:
-        return GLUED_UNITS.get(glued.lower(), "")
-    candidate = symbol or word
+    if glued and glued.lower() in GLUED_UNITS:
+        return GLUED_UNITS[glued.lower()]
+    candidate = glued or symbol or word  # "10s", "10sec" and "10 s" go through the same table
     prefix = ""
     business = BUSINESS_PREFIX.match(candidate)
     if business:  # "10 working hours" is "10 business hour", not "10 hour"
@@ -376,8 +377,9 @@ def _code_body(segment: str) -> str:
 
 
 def _code(text: str) -> Counter[str]:
-    """Code compared line by line; indentation counts, trailing spaces, line endings, the fence
-    language tag and the inline delimiter width do not."""
+    """Code compared line by line; indentation counts, trailing spaces, CR/LF line endings, the
+    fence language tag and the inline delimiter width do not. Only CR and LF end a line, as in
+    CommonMark and `prose_lint.code_ranges`."""
     return Counter(_code_body(text[start:end]) for start, end in _lint.code_ranges(text))
 
 

@@ -186,6 +186,21 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertEqual(check.compare("Wait 10 sec.", "Wait 10 s."), [])
         self.assertEqual(check.compare("2 MS patients were enrolled.", "2 patients with MS were enrolled."), [])
 
+    def test_glued_and_spaced_units_agree(self):
+        for source, edit in [("Wait 10s.", "Wait 10 s."), ("Wait 10 s.", "Wait 10sec."),
+                             ("Wait 10 msec.", "Wait 10msec."), ("Wait 10 msec.", "Wait 10 msecs."),
+                             ("Wait 10min.", "Wait 10 minutes."), ("Latency 10MS.", "Latency 10 MS.")]:
+            self.assertEqual(check.compare(source, edit), [], (source, edit))
+        self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
+        self.assertEqual(check.compare("It took 24h.", "It took 24 hours."), [])
+
+    def test_closing_fence_width_is_style(self):
+        self.assertEqual(check.compare("```\na\n```\nb\n", "```\na\n````\nb\n"), [])
+
+    def test_code_spans_and_bodies_agree_on_line_ends(self):
+        for text in ["```\na\u2029```\nb\n", "```\na\x0c```\n", "Run ```a\u2028b``` now."]:
+            self.assertEqual(check.compare(text, text), [], repr(text))
+
     def test_sign_kept_after_comma_separated_numbers(self):
         self.assertIn(("lost", "number", "-20 °C"),
                       changes("In March 2024, 500 -20 °C readings were logged.",

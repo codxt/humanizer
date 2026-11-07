@@ -245,6 +245,10 @@ class ProseLintTests(unittest.TestCase):
         lint.code_ranges("".join("`" * length + "a" for length in range(1, 900)))  # distinct run lengths
         self.assertLess(time.monotonic() - start, 2)
 
+    def test_unicode_separator_does_not_end_a_fence(self):
+        ranges = lint.code_ranges("```\na\u2029```\nb\n")
+        self.assertEqual(ranges, [(0, len("```\na\u2029```\nb\n"))])
+
     def test_form_feed_does_not_end_inline_code(self):
         self.assertEqual(self.scan("`x\fthat distinction matters`\n"), [])
 

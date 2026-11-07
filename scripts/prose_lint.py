@@ -83,7 +83,7 @@ def code_ranges(text: str) -> list[tuple[int, int]]:
     fence_length = 0
     block_start = 0
     offset = 0
-    for line in text.splitlines(keepends=True):
+    for line in LINE.findall(text):  # only CR and LF end a line, as in CommonMark
         if fence_char:
             closing = re.fullmatch(r" {0,3}(" + re.escape(fence_char) + r"{"
                                    + str(fence_length) + r",})[ \t]*(?:\r?\n)?", line)
