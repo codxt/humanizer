@@ -25,7 +25,8 @@ a paragraph, a list item or a heading, or that follows an abbreviation it does
 not know. Russian names are matched by stem, so
 names that differ only by an ending count as one. English "May" counts as a
 modal verb, not a month. Text inside fenced code and inline code spans is
-compared as code only; indented (four-space) code blocks are read as prose.
+compared as code only; indented (four-space) code blocks are read as prose, and
+a fence inside a blockquote is compared as part of the quotation.
 
 Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 """

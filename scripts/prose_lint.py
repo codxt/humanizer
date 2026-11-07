@@ -247,10 +247,13 @@ def _straight_closer(text: str, i: int) -> bool:
 def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
     """Closed quotations inside one paragraph; an unclosed quotation exempts nothing.
 
-    A straight quote opens at the start of the text or after a space or opening punctuation, and
-    closes after a non-space character when a space, the end, or punctuation follows. After a
-    digit it never opens one (`6"` is an inch mark) but can close one, so "version 2" is a
-    quotation and an inch mark inside an open quotation ends it.
+    A straight quote opens a quotation when the next character is not a space and the previous
+    one is the start of the text, a space, or one of `( [ { « “ „ — – - / :`. It closes one when
+    the previous character is not a space and the next one is the end of the text, a space, or
+    one of `. , ; : ! ? ) ] } » ” … — – - '`; an opening bracket after it closes nothing, so
+    `"Version 2"[3]` is not a quotation. A backslash-escaped quote does neither. After a digit
+    a quote never opens a quotation (`6"` is an inch mark) but can close one, so "version 2" is
+    a quotation and an inch mark inside an open quotation ends it.
     """
     ranges: list[tuple[int, int]] = []
     stack: list[tuple[str, int]] = []

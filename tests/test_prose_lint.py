@@ -157,6 +157,11 @@ class ProseLintTests(unittest.TestCase):
         code, _, _, _ = self.run_cli('He wrote "Version 2" and the reply was: Hope this helps."\n',
                                      "--fail-on", "assistant residue")
         self.assertEqual(code, 1)
+        # documented: an inch mark inside an open quotation ends it
+        code, out, _, _ = self.run_cli('He said "as an AI language model, the 6" screen is fine.\n',
+                                       "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+        self.assertIn("[quoted]", out)
 
     def test_unclosed_quote_does_not_exempt_residue(self):
         code, _, _, _ = self.run_cli('He wrote "Hope this helps.\n\nNext paragraph.\n', "--fail-on", "assistant residue")
