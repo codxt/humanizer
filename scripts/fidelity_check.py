@@ -5,19 +5,21 @@ Usage:
     python3 -S scripts/fidelity_check.py [--strict] [--json] SOURCE EDIT
 
 The script never rewrites text. It lists meaning-bearing items whose count
-changed between SOURCE and EDIT: numbers with their sign and a following unit
-or magnitude ("30 days", "-5 °C", "1.5 million", "5 %"), numeric dates as
-ordered parts, currency, month and weekday names, relative dates, links and
-e-mail addresses, code (indentation included), quotations, bracketed
-citations, qualifiers, modal verbs, negation, first-person words, apologies
-and thanks, and names. Each finding gives the count on both sides.
+changed between SOURCE and EDIT: numbers with their sign and a following
+percent, temperature, time or magnitude unit ("30 days", "10 business days",
+"-5 °C", "1.5 million", "5 %"; other units such as kg or km are not compared),
+numeric dates as ordered parts, currency, month and weekday names, relative
+dates, links and e-mail addresses, code (indentation included), quotations,
+bracketed citations, qualifiers, modal verbs, negation, first-person words,
+apologies and thanks, and names. Each finding gives the count on both sides.
 
 A finding asks for a sentence-level comparison; it is not proof of drift.
 Removing a stacked hedge or a formulaic "not only" changes counts on purpose,
 and a date rewritten from digits to words (or back) shows up as a change.
 A clean result is not proof of fidelity either: the check cannot see tense or
 aspect ("refunding" vs "refunded"), a changed actor without a pronoun, a
-condition moved to another clause, or a changed scope; it ignores numbers
+condition moved to another clause, numbers swapped between objects ("5000 to
+Alice, 3000 to Bob" and the reverse), or a changed scope; it ignores numbers
 written as words; and it does not compare a name that only opens a sentence,
 a paragraph, a list item or a heading. Russian names are matched by stem, so
 names that differ only by an ending count as one. English "May" counts as a
@@ -29,6 +31,7 @@ Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 from __future__ import annotations
 
 import argparse
+import bisect
 import importlib.util
 import json
 import re
@@ -133,12 +136,14 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
     ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
+    ("business day", r"(?:business|working|рабоч\w+)\s+(?:days?|дн(?:я|ей|и)|день)"),
     ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
 ]]
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
-UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:working|business|calendar|full"
-                        r"|рабочих|календарных|полных)\s+)?([^\W\d_]+\.?)")
+# "calendar" and "full" days are days; "business" and "working" days are a different unit.
+UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
+                        r"((?:(?:business|working|рабоч\w+)\s+)?[^\W\d_]+\.?)")
 
 CONTRACTIONS = [
     (re.compile(r"\bwon['’]t\b"), "will not"), (re.compile(r"\bcan['’]t\b"), "can not"),
@@ -156,6 +161,12 @@ ALL_CAPS = re.compile(r"(?<!\w)[A-ZА-ЯЁ]{2,}(?!\w)")
 TOKEN = re.compile(r"\w+(?:['’-]\w+)*")
 OPENERS = set("\"'«“„‘([{*_")
 SENTENCE_END = set(".!?…:;•*#>-–—")
+ABBREVIATIONS = {
+    "mr", "mrs", "ms", "dr", "prof", "st", "sr", "jr", "vs", "cf", "e.g", "i.e", "etc", "inc",
+    "ltd", "co", "corp", "no", "vol", "fig", "approx", "dept", "gen", "col", "capt", "lt", "gov",
+    "sen", "rep", "rev", "hon", "г", "гг", "т.е", "т.к", "т.н", "им", "ул", "д", "др", "проф",
+    "акад", "тов", "ген", "г-н", "г-жа", "св",
+}
 NOT_NAMES = {
     "вы", "вас", "вам", "вами", "ваш", "ваша", "ваше", "ваши", "вашего", "вашей", "вашему",
     "вашим", "ваших", "вашу", "вашем", "mr", "mrs", "ms", "dr", "prof", "sir", "may",
@@ -175,16 +186,17 @@ def _blank(match: re.Match[str]) -> str:
     return " " * len(match.group(0))
 
 
-def _canonical_number(raw: str) -> str:
+def _canonical_number(raw: str, decimal_comma: bool) -> str:
+    """Spaces group thousands; a comma does too in Latin-script text, and is a decimal mark in
+    Cyrillic text ("1,500 кг" is 1.5 kg). Dots are never read as thousands separators, so an
+    ambiguous "1.500" stays its own key and over-reports instead of hiding a 1000x change."""
     value = re.sub(r"[\u00a0\u202f ]", "", raw)
-    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", value):
+    if not decimal_comma and re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", value):
         value = value.replace(",", "")
-    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", value):
-        value = value.replace(".", "").replace(",", ".")
     else:
         value = value.replace(",", ".")
     if value.isdigit():
-        value = str(int(value))
+        value = value.lstrip("0") or "0"
     return value
 
 
@@ -210,13 +222,14 @@ def _sign_before(prose: str, start: int) -> str:
 
 def _numbers(prose: str) -> tuple[Counter[str], Counter[str]]:
     """Numeric dates (ordered parts) and other numbers (with sign and unit), counted separately."""
-    dates = Counter(".".join(str(int(part)) for part in re.split(r"[./-]", match.group(0)))
+    decimal_comma = len(re.findall(r"[а-яё]", prose, re.I)) > len(re.findall(r"[a-z]", prose, re.I))
+    dates = Counter(".".join(part.lstrip("0") or "0" for part in re.split(r"[./-]", match.group(0)))
                     for match in NUMERIC_DATE.finditer(prose))
     rest = NUMERIC_DATE.sub(_blank, prose)
     numbers: Counter[str] = Counter()
     for match in NUMBER.finditer(rest):
         unit = _unit_after(rest, match.end())
-        value = _sign_before(rest, match.start()) + _canonical_number(match.group(0))
+        value = _sign_before(rest, match.start()) + _canonical_number(match.group(0), decimal_comma)
         numbers[f"{value} {unit}" if unit else value] += 1
     return dates, numbers
 
@@ -258,6 +271,13 @@ def _is_sentence_initial(text: str, start: int) -> bool:
         index -= 1
     if index < 0 or text.count("\n", index + 1, start) > 1:
         return True
+    if text[index] == ".":
+        token_start = index
+        while token_start > 0 and (text[token_start - 1].isalpha() or text[token_start - 1] in ".-"):
+            token_start -= 1
+        token = text[token_start:index].lower()
+        if token in ABBREVIATIONS or (len(token) == 1 and token.isalpha()):
+            return False  # "Dr. Ivanov", "e.g. Acme", "И. Петров"
     return text[index] in SENTENCE_END
 
 
@@ -299,11 +319,17 @@ def _quotations(text: str) -> Counter[str]:
             blocks[-1][1] = max(blocks[-1][1], end)
         else:
             blocks.append([start, end])
-    inline = [(start, end) for start, end in _lint.quoted_ranges(scan)
-              if not any(b_start <= start and end <= b_end for b_start, b_end in blocks)]
-    inline = [(start, end) for start, end in inline
-              if not any((o_start, o_end) != (start, end) and o_start <= start and end <= o_end
-                         for o_start, o_end in inline)]
+    block_starts = [start for start, _ in blocks]
+    inline: list[tuple[int, int]] = []
+    reach = -1
+    for start, end in sorted(set(_lint.quoted_ranges(scan)), key=lambda item: (item[0], -item[1])):
+        block = bisect.bisect_right(block_starts, start) - 1
+        if block >= 0 and end <= blocks[block][1]:
+            continue  # inside a blockquote, which is compared as a whole
+        if end <= reach:
+            continue  # nested inside an outer quotation
+        inline.append((start, end))
+        reach = end
     items: Counter[str] = Counter()
     for start, end in [tuple(block) for block in blocks] + inline:
         value = re.sub(r"(?m)^[ \t]*(?:>[ \t]?)+", "", text[start:end]).strip()
@@ -330,7 +356,7 @@ def _prose(text: str) -> str:
 def profile(text: str) -> dict[str, Counter[str]]:
     """Counts of meaning-bearing items, by category."""
     without_code = _lint.mask_code(text, mask_urls=False)
-    links = Counter(match.group(0).rstrip(".,;:!?»”\"'") for match in URL_OR_EMAIL.finditer(without_code))
+    links = Counter(match.group(0).rstrip(".,;:!?»”\"'…—–") for match in URL_OR_EMAIL.finditer(without_code))
     citations = Counter(match.group(0) for match in CITATION.finditer(URL_OR_EMAIL.sub(_blank, without_code)))
     prose = _prose(text)
     words = _normalize_words(prose)

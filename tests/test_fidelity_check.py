@@ -53,6 +53,20 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertEqual(check.compare("Сбор 45 ₽.", "Сбор 45 руб"), [])
         self.assertIn(("added", "currency", "JPY"), changes("It costs ¥1000.", "It costs 1000 yen."))
 
+    def test_very_long_digit_run_does_not_crash(self):
+        text = "Code " + "7" * 5000 + "."
+        self.assertEqual(check.compare(text, text), [])
+        self.assertTrue(changes(text, "Code 7."))
+
+    def test_dots_never_group_thousands(self):
+        self.assertTrue(changes("Yield was 1.500 tons.", "Yield was 1500 tons."))
+        self.assertNotIn(("added", "number", "250"), changes("Take 0.25 mg daily.", "Take 0.250 mg daily."))
+
+    def test_comma_is_decimal_in_cyrillic_text(self):
+        self.assertTrue(changes("Вес 1,500 кг.", "Вес 1500 кг."))
+        self.assertEqual(check.compare("Вес 1,5 кг.", "Вес 1.5 кг."), [])
+        self.assertEqual(check.compare("The fee is 1,500 USD.", "The fee is 1500 USD."), [])
+
     def test_numeric_date_change(self):
         found = changes("Ответ до 12.10.2026.", "Ответ до 12.11.2026.")
         self.assertEqual(found, {("lost", "date", "12.10.2026"), ("added", "date", "12.11.2026")})
@@ -70,7 +84,11 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("added", "number", "1.5 billion"),
                       changes("Revenue was 1.5 million dollars.", "Revenue was 1.5 billion dollars."))
         self.assertIn(("lost", "number", "5 %"), changes("A 5% fee applies.", "A 5 fee applies."))
-        self.assertEqual(check.compare("Ответ в течение 10 рабочих дней.", "Ответим за 10 дней."), [])
+        self.assertEqual(check.compare("Ответ в течение 10 календарных дней.", "Ответим за 10 дней."), [])
+        self.assertIn(("lost", "number", "10 business day"),
+                      changes("Ответ в течение 10 рабочих дней.", "Ответим за 10 дней."))
+        self.assertIn(("lost", "number", "10 business day"),
+                      changes("Payment is due in 10 business days.", "Payment is due in 10 days."))
         self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
         self.assertEqual(check.compare("Pages 10-20.", "Pages 10-20."), [])
 
@@ -105,6 +123,29 @@ class FidelityCheckTests(unittest.TestCase):
     def test_sentence_initial_word_is_not_a_name(self):
         self.assertEqual(check.compare("Unfortunately, the fee stays.", "The fee stays."), [])
         self.assertEqual(check.compare("Terms: The buyer pays.", "Terms: shipping is included."), [])
+
+    def test_names_after_abbreviations_and_initials(self):
+        self.assertIn(("added", "name", "petrov"),
+                      changes("We paid Dr. Ivanov 500 rubles.", "We paid Dr. Petrov 500 rubles."))
+        self.assertIn(("added", "name", "globex"),
+                      changes("Some vendors, e.g. Acme, refused.", "Some vendors, e.g. Globex, refused."))
+        self.assertIn(("added", "name", "сидор"),
+                      changes("Подписал И. Петров.", "Подписал И. Сидоров."))
+
+    def test_many_quotations_are_fast(self):
+        import time
+        text = " ".join(f'"quote {i}"' for i in range(4000))
+        start = time.monotonic()
+        self.assertEqual(check.compare(text, text), [])
+        self.assertLess(time.monotonic() - start, 3)
+
+    def test_nested_quotation_is_compared_once(self):
+        self.assertEqual(check.compare("Он сказал: «Это „важно“ для нас».", "Он сказал: «Это „важно“ для нас»."), [])
+        self.assertIn(("added", "quotation", "Это „срочно“ для нас"),
+                      changes("Он сказал: «Это „важно“ для нас».", "Он сказал: «Это „срочно“ для нас»."))
+
+    def test_trailing_ellipsis_is_not_part_of_a_link(self):
+        self.assertEqual(check.compare("See https://x.test/a…", "See https://x.test/a."), [])
 
     def test_names_in_tables_and_wrapped_lines(self):
         self.assertIn(("added", "name", "john"), changes("| Anna | 45 |", "| John | 45 |"))
