@@ -54,14 +54,14 @@ python3 scripts/prose_lint.py --github-annotations --fail-on "assistant residue"
 
 ## Mechanical fidelity check
 
-`scripts/fidelity_check.py` compares a source with its edit and lists meaning-bearing items whose count changed: numbers (`4 500`, `4,500` and `4500` count as equal), currency (`£`, `GBP` and "pounds sterling" count as equal), month and weekday names, relative dates, links and e-mail addresses, code, quotations, bracketed citations, qualifiers (`at least`, `usually`, `если`, `не позднее`), modal verbs (`may`, `must`, `можем`, `обязаны`), negation, first-person words, apologies and thanks, and names.
+`scripts/fidelity_check.py` compares a source with its edit and lists meaning-bearing items whose count changed: numbers with their sign and a following unit or magnitude (`4 500`, `4,500` and `4500` count as equal; `30 days` and `30 weeks` do not), numeric dates as ordered parts (`12.10.2026` and `10.12.2026` differ), currency (`£`, `GBP` and "45 pounds" count as equal), month and weekday names, relative dates, links and e-mail addresses, code (indentation included), quotations, bracketed citations, qualifiers (`at least`, `usually`, `если`, `не позднее`), modal verbs (`may`, `must`, `можем`, `обязаны`), negation, first-person words, apologies and thanks, and names.
 
 ```bash
 python3 scripts/fidelity_check.py source.md edit.md
 python3 scripts/fidelity_check.py --strict --json source.md edit.md
 ```
 
-A finding asks for a sentence-level comparison; removing a stacked hedge or a formulaic "not only" changes counts on purpose. A clean result does not prove fidelity: the check cannot see tense or aspect ("refunding" vs "refunded"), an actor change without a pronoun, a condition moved to another clause, or a changed scope, and it ignores numbers written as words. Russian names inside «» are compared as quotations, so an inflected company name shows up as a changed quotation. `--strict` exits 1 on any finding; errors exit 2.
+A finding asks for a sentence-level comparison; removing a stacked hedge or a formulaic "not only" changes counts on purpose, and a date rewritten from digits to words (or back) shows up as a change. A clean result does not prove fidelity: the check cannot see tense or aspect ("refunding" vs "refunded"), an actor change without a pronoun, a condition moved to another clause, or a changed scope; it ignores numbers written as words; and it does not compare a name that only opens a sentence, a paragraph, a list item, or a heading. Russian names inside «» are compared as quotations, so an inflected company name shows up as a changed quotation. English "May" counts as a modal verb, not a month, and `¥` is reported separately because it can mean yen or yuan. `--strict` exits 1 on any finding; errors exit 2.
 
 The included manual regression cases in `tests/fidelity_cases.json` cover semantic edge cases in the currently supported languages. Passing a style lint or model check does not guarantee legal correctness or authenticity.
 

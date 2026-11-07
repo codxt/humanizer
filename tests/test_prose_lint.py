@@ -222,12 +222,29 @@ class ProseLintTests(unittest.TestCase):
         )
         self.assertEqual(self.labels(text).count("chatbot artifact"), 3)
 
-    def test_ordinary_tracking_and_quoted_markup_are_not_artifacts(self):
+    def test_ordinary_tracking_and_code_markup_are_not_artifacts(self):
         text = (
             "Read https://example.org/post?utm_source=newsletter&utm_medium=email.\n"
             "The leak looks like `contentReference[oaicite:1]` or `?utm_source=chatgpt.com`.\n"
         )
         self.assertNotIn("chatbot artifact", self.labels(text))
+
+    def test_glued_artifact_markers(self):
+        text = "Revenue grew in 1998turn0search0. It closed citeturn0news2 later.\n"
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 2)
+
+    def test_quoted_link_artifact_does_not_block(self):
+        for text in ['He wrote "https://x.test/?utm_source=chatgpt.com".\n',
+                     "Он написал: «https://x.test/?utm_source=chatgpt.com».\n",
+                     "He wrote “https://x.test/?utm_source=chatgpt.com” and left.\n"]:
+            code, out, _, _ = self.run_cli(text, "--fail-on", "chatbot artifact")
+            self.assertEqual(code, 0, text)
+            self.assertIn("chatbot artifact [quoted]", out, text)
+
+    def test_unquoted_link_artifact_after_quoted_link_blocks(self):
+        text = 'See "https://a.test/" and https://b.test/?utm_source=openai today.\n'
+        code, _, _, _ = self.run_cli(text, "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
 
     def test_artifact_label_can_block(self):
         code, out, _, _ = self.run_cli("Founded in 1990.turn0search0\n", "--fail-on", "chatbot artifact")
@@ -244,6 +261,10 @@ class ProseLintTests(unittest.TestCase):
 
     def test_ordinary_brackets_are_not_placeholders(self):
         text = "As reported [1], the fee [sic] was waived (if applicable) by the insert team.\n"
+        self.assertNotIn("placeholder text", self.labels(text))
+
+    def test_markdown_link_text_is_not_a_placeholder(self):
+        text = "See [Add note](https://example.org/n) and [Year][ref].\n\n[date]: https://example.org/x\n"
         self.assertNotIn("placeholder text", self.labels(text))
 
     def test_new_chatbot_residue(self):

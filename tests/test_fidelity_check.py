@@ -32,7 +32,7 @@ class FidelityCheckTests(unittest.TestCase):
 
     def test_lost_cutoff_and_limit(self):
         found = changes("Cancel at least 24 hours before renewal.", "Cancel before renewal.")
-        self.assertEqual(found, {("lost", "number", "24"), ("lost", "qualifier", "at least")})
+        self.assertEqual(found, {("lost", "number", "24 hour"), ("lost", "qualifier", "at least")})
 
     def test_added_apology_and_first_person(self):
         found = changes("We consider the deposit deduction justified.",
@@ -48,9 +48,31 @@ class FidelityCheckTests(unittest.TestCase):
         found = changes("The fee is £45.", "The fee is $45.")
         self.assertEqual(found, {("lost", "currency", "GBP"), ("added", "currency", "USD")})
 
-    def test_dotted_date_splits_into_parts(self):
+    def test_currency_words(self):
+        self.assertEqual(check.compare("The fee is £45.", "The fee is 45 pounds."), [])
+        self.assertEqual(check.compare("Сбор 45 ₽.", "Сбор 45 руб"), [])
+        self.assertIn(("added", "currency", "JPY"), changes("It costs ¥1000.", "It costs 1000 yen."))
+
+    def test_numeric_date_change(self):
         found = changes("Ответ до 12.10.2026.", "Ответ до 12.11.2026.")
-        self.assertEqual(found, {("lost", "number", "10"), ("added", "number", "11")})
+        self.assertEqual(found, {("lost", "date", "12.10.2026"), ("added", "date", "12.11.2026")})
+
+    def test_day_month_swap_is_a_change(self):
+        self.assertTrue(changes("Ответ до 12.10.2026.", "Ответ до 10.12.2026."))
+        self.assertTrue(changes("Due 2026-10-12.", "Due 2026-12-10."))
+        self.assertEqual(check.compare("Due 12/10/2026.", "Due 12.10.2026."), [])
+
+    def test_sign_unit_and_magnitude(self):
+        self.assertEqual(changes("It was −5 °C.", "It was 5 °C."),
+                         {("lost", "number", "-5 °C"), ("added", "number", "5 °C")})
+        self.assertEqual(changes("Pay within 30 days.", "Pay within 30 weeks."),
+                         {("lost", "number", "30 day"), ("added", "number", "30 week")})
+        self.assertIn(("added", "number", "1.5 billion"),
+                      changes("Revenue was 1.5 million dollars.", "Revenue was 1.5 billion dollars."))
+        self.assertIn(("lost", "number", "5 %"), changes("A 5% fee applies.", "A 5 fee applies."))
+        self.assertEqual(check.compare("Ответ в течение 10 рабочих дней.", "Ответим за 10 дней."), [])
+        self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
+        self.assertEqual(check.compare("Pages 10-20.", "Pages 10-20."), [])
 
     def test_weekday_inflection_is_equivalent(self):
         self.assertEqual(check.compare("Пришлите выписку до пятницы.", "До пятницы пришлите выписку."), [])
@@ -82,6 +104,42 @@ class FidelityCheckTests(unittest.TestCase):
 
     def test_sentence_initial_word_is_not_a_name(self):
         self.assertEqual(check.compare("Unfortunately, the fee stays.", "The fee stays."), [])
+        self.assertEqual(check.compare("Terms: The buyer pays.", "Terms: shipping is included."), [])
+
+    def test_names_in_tables_and_wrapped_lines(self):
+        self.assertIn(("added", "name", "john"), changes("| Anna | 45 |", "| John | 45 |"))
+        self.assertIn(("added", "name", "john"),
+                      changes("The deal was signed with\nAnna Smith on Monday.",
+                              "The deal was signed with\nJohn Smith on Monday."))
+
+    def test_identifiers_are_not_names(self):
+        for text in ["We use Python3 and GPT4 daily.", "See THIRD_PARTY_NOTICES.md and my_Variable.",
+                     "HTTP2 and UTF8 and ISO9001 apply."]:
+            self.assertEqual(check.compare(text, text), [], text)
+
+    def test_repository_documents_compare_clean_with_themselves(self):
+        root = Path(__file__).resolve().parents[1]
+        for path in [root / "README.md", root / "SKILL.md", root / "THIRD_PARTY_NOTICES.md",
+                     *sorted((root / "references").glob("*.md"))]:
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(check.compare(text, text), [], path.name)
+
+    def test_acronyms_and_latin_abbreviations_are_not_first_person(self):
+        found = changes("We approved the plan.", "The US approved the plan.")
+        self.assertIn(("lost", "first person", "we/us/our"), found)
+        self.assertNotIn(("lost", "first person", "we/us/our"),
+                         changes("The US market grew, i.e. sales rose.", "The market grew; sales rose."))
+        self.assertNotIn(("lost", "first person", "i/me/my"),
+                         changes("The US market grew, i.e. sales rose.", "The market grew; sales rose."))
+
+    def test_speech_act_words_are_specific(self):
+        self.assertEqual(check.compare("It is a regrettable outcome.", "It is a bad outcome."), [])
+        self.assertEqual(check.compare("Территория простирается на север.", "Территория тянется на север."), [])
+        self.assertIn(("lost", "speech act", "apology"), changes("We apologise for the delay.", "The delay continues."))
+
+    def test_english_month_needs_capital(self):
+        self.assertEqual(check.compare("The protest march was peaceful.", "The protest walk was peaceful."), [])
+        self.assertIn(("lost", "date word", "march"), changes("Due in March.", "Due soon."))
 
     def test_russian_name_inflection_is_equivalent(self):
         self.assertEqual(check.compare("Решение принял Петров.", "Решение принято Петровым."), [])
@@ -96,6 +154,7 @@ class FidelityCheckTests(unittest.TestCase):
 
     def test_quote_mark_style_is_equivalent(self):
         self.assertEqual(check.compare('Он написал: "вернём деньги".', "Он написал: «вернём деньги»."), [])
+        self.assertEqual(check.compare('He said "Hello," she replied.', 'He said "Hello", she replied.'), [])
 
     def test_blockquote_reflow_is_equivalent(self):
         source = "> We will refund\n> the full amount.\n\nThanks.\n"
@@ -111,8 +170,13 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("lost", "citation", "[3]"), found)
 
     def test_words_inside_code_are_not_prose(self):
-        self.assertEqual(check.compare("Run `if not ready: exit 2`.", "Run `if not ready: exit 2`."), [])
-        self.assertEqual(check.compare("Use `--no-cache`.", "Use `--no-cache` here."), [])
+        found = check.compare("Run `if not ready: exit 2` now.", "Run `if ready: exit 3` now.")
+        self.assertEqual({item["category"] for item in found}, {"code"})
+
+    def test_code_indentation_counts(self):
+        source = "```python\nif x:\n    y()\n```\n"
+        self.assertTrue(changes(source, "```python\nif x:\ny()\n```\n"))
+        self.assertEqual(check.compare(source, source.replace("\n", "\r\n")), [])
 
     def test_cli_report_strict_and_json(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -121,12 +185,12 @@ class FidelityCheckTests(unittest.TestCase):
             edit.write_text("Pay soon.\n", encoding="utf-8")
             with redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(check.main(["fidelity_check.py", str(source), str(edit)]), 0)
-            self.assertIn("lost number: 30", out.getvalue())
+            self.assertIn("lost number: 30 day", out.getvalue())
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(check.main(["fidelity_check.py", "--strict", str(source), str(edit)]), 1)
             with redirect_stdout(io.StringIO()) as out:
                 check.main(["fidelity_check.py", "--json", str(source), str(edit)])
-            self.assertEqual(json.loads(out.getvalue())[0]["item"], "30")
+            self.assertEqual(json.loads(out.getvalue())[0]["item"], "30 day")
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(check.main(["fidelity_check.py", "--strict", str(source), str(source)]), 0)
 

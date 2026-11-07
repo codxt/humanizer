@@ -5,17 +5,22 @@ Usage:
     python3 -S scripts/fidelity_check.py [--strict] [--json] SOURCE EDIT
 
 The script never rewrites text. It lists meaning-bearing items whose count
-changed between SOURCE and EDIT: numbers, currency, month and weekday names,
-relative dates, links and e-mail addresses, code, quotations, bracketed
+changed between SOURCE and EDIT: numbers with their sign and a following unit
+or magnitude ("30 days", "-5 °C", "1.5 million", "5 %"), numeric dates as
+ordered parts, currency, month and weekday names, relative dates, links and
+e-mail addresses, code (indentation included), quotations, bracketed
 citations, qualifiers, modal verbs, negation, first-person words, apologies
 and thanks, and names. Each finding gives the count on both sides.
 
 A finding asks for a sentence-level comparison; it is not proof of drift.
-Removing a stacked hedge or a formulaic "not only" changes counts on purpose.
+Removing a stacked hedge or a formulaic "not only" changes counts on purpose,
+and a date rewritten from digits to words (or back) shows up as a change.
 A clean result is not proof of fidelity either: the check cannot see tense or
 aspect ("refunding" vs "refunded"), a changed actor without a pronoun, a
-condition moved to another clause, or a changed scope, and it ignores numbers
-written as words. Text inside code is compared as code only.
+condition moved to another clause, or a changed scope; it ignores numbers
+written as words; and it does not compare a name that only opens a sentence,
+a paragraph, a list item or a heading. English "May" counts as a modal verb,
+not a month. Text inside code is compared as code only.
 
 Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 """
@@ -40,14 +45,12 @@ def _lexicon(entries: dict[str, str]) -> list[tuple[str, re.Pattern[str]]]:
     return [(key, re.compile(r"(?<!\w)(?:" + pattern + r")(?!\w)")) for key, pattern in entries.items()]
 
 
-MONTHS_EN = ["january", "february", "march", "april", "may", "june", "july",
-             "august", "september", "october", "november", "december"]
-MONTHS_RU = ["январ", "феврал", "март", "апрел", "ма[йяе]", "июн", "июл", "август",
-             "сентябр", "октябр", "ноябр", "декабр"]
-# "may" is counted as a modal verb, not as a month; "среда" is left out because it also means "environment".
+MONTHS = [("january", "январ"), ("february", "феврал"), ("march", "март"), ("april", "апрел"),
+          ("may", "ма[йяе]"), ("june", "июн"), ("july", "июл"), ("august", "август"),
+          ("september", "сентябр"), ("october", "октябр"), ("november", "ноябр"), ("december", "декабр")]
+# Matched in lowercased text. "среда" is left out because it also means "environment".
 DATE_WORDS = _lexicon({
-    **{month: (MONTHS_RU[i] if MONTHS_RU[i].endswith("]") else MONTHS_RU[i] + r"\w*")
-       + ("" if month == "may" else "|" + month) for i, month in enumerate(MONTHS_EN)},
+    **{month: stem if stem.endswith("]") else stem + r"\w*" for month, stem in MONTHS},
     "monday": r"monday|понедельник\w*", "tuesday": r"tuesday|вторник\w*",
     "wednesday": r"wednesday", "thursday": r"thursday|четверг\w*",
     "friday": r"friday|пятниц\w*", "saturday": r"saturday|суббот\w*",
@@ -55,6 +58,9 @@ DATE_WORDS = _lexicon({
     "today": r"today|tonight|сегодня", "tomorrow": r"tomorrow|завтра",
     "yesterday": r"yesterday|вчера", "day after tomorrow": r"послезавтра",
 })
+# English months count only when capitalized, so the verb "march" is not a date. "May" is left
+# to the modal verbs: it cannot be told apart from "May I…" at the start of a sentence.
+EN_MONTHS = _lexicon({month: month.capitalize() for month, _ in MONTHS if month != "may"})
 
 QUALIFIERS = _lexicon({key: key for key in [
     "usually", "typically", "generally", "normally", "often", "frequently", "sometimes",
@@ -90,28 +96,46 @@ NEGATION = _lexicon({key: key for key in [
     "не", "нет", "ни", "никогда", "никто", "ничего", "нигде", "без",
 ]})
 
+# Counted after all-caps tokens are blanked, so "US" is not "us"; "i.e." is not "I".
 FIRST_PERSON = _lexicon({
-    "i/me/my": r"i|me|my|mine|myself",
+    "i/me/my": r"i(?!\.\w)|me|my|mine|myself",
     "we/us/our": r"we|us|our|ours|ourselves",
-    "я/мой": r"я|меня|мне|мной|мною|мой|моя|моё|мое|мои|моего|моей|моему|моим|моих|мою|моем|моём",
+    "я/мой": r"я|меня|мне|мной|мною|мой|моя|мое|мои|моего|моей|моему|моим|моих|мою|моем",
     "мы/наш": r"мы|нас|нам|нами|наш|наша|наше|наши|нашего|нашей|нашему|нашим|наших|нашу|нашем",
 })
 
 SPEECH_ACTS = _lexicon({
-    "apology": r"sorry|apologi[sz]\w*|apology|regret\w*|извин\w*|прошу прощения|прости\w*|сожале\w*",
-    "thanks": r"thank\w*|grateful|appreciate\w*|благодар\w*|спасибо|признательн\w*",
+    "apology": r"sorry|apolog(?:y|ies|i[sz](?:e|es|ed|ing))|regret(?:s|ted|ting|tably)?"
+               r"|извин\w*|прошу прощения|прости(?:те)?|сожале\w*",
+    "thanks": r"thank(?:s|ed|ing|ful)?|grateful|appreciat(?:e|es|ed|ing)"
+              r"|благодар\w*|спасибо|признательн\w*",
 })
 
 CURRENCY = [(key, re.compile(pattern)) for key, pattern in {
-    "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b)",
+    "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b|(?<=\d )pounds?\b)",
     "USD": r"\$|\bUSD\b|(?i:\bdollars?\b|(?<!\w)доллар\w*)",
     "EUR": r"€|\bEUR\b|(?i:\beuros?\b|(?<!\w)евро(?!\w))",
-    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|л\w*))",
+    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|л\w*|(?!\w)))",
     "KZT": r"₸|\bKZT\b|(?i:\btenge\b|(?<!\w)тенге(?!\w))",
     "AED": r"\bAED\b|(?i:\bdirhams?\b|(?<!\w)дирхам\w*)",
     "CHF": r"\bCHF\b",
-    "CNY": r"¥|\bCNY\b|\bRMB\b",
+    "CNY": r"\bCNY\b|\bRMB\b|(?i:\byuan\b|(?<!\w)юан\w*)",
+    "JPY": r"\bJPY\b|(?i:\byen\b|(?<!\w)[ий]ен[аыеу]?(?!\w))",
+    "¥ (JPY or CNY)": r"¥",
 }.items()]
+
+# A unit or magnitude right after a number becomes part of its key: "30 days" and "30 weeks" differ.
+UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
+    ("%", r"%|percent|per cent|процент\w*"), ("‰", r"‰"), ("°C", r"°\s?C"), ("°F", r"°\s?F"),
+    ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
+    ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
+    ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
+    ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
+    ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
+]]
+GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
+UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:working|business|calendar|full"
+                        r"|рабочих|календарных|полных)\s+)?([^\W\d_]+\.?)")
 
 CONTRACTIONS = [
     (re.compile(r"\bwon['’]t\b"), "will not"), (re.compile(r"\bcan['’]t\b"), "can not"),
@@ -121,17 +145,31 @@ CONTRACTIONS = [
     (re.compile(r"['’]m\b"), " am"),
 ]
 
-URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]]+|www\.[^\s<>()\[\]]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]\"«»“”„]+|www\.[^\s<>()\[\]\"«»“”„]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 CITATION = re.compile(r"\[\d+(?:\s*[,–-]\s*\d+)*\]|\[@[\w:.-]+\]|\[\^[\w-]+\]")
-DOTTED_DATE = re.compile(r"(?<![\d.,/])\d{1,4}[./]\d{1,2}[./]\d{1,4}(?![\d.,/]?\d)")
+NUMERIC_DATE = re.compile(r"(?<![\d.,/-])(?:\d{1,4}[./]\d{1,2}[./]\d{1,4}|\d{4}-\d{1,2}-\d{1,2})(?![\d.,/-]?\d)")
 NUMBER = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*)")
-WORD = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*")
+ALL_CAPS = re.compile(r"(?<!\w)[A-ZА-ЯЁ]{2,}(?!\w)")
+TOKEN = re.compile(r"\w+(?:['’-]\w+)*")
 OPENERS = set("\"'«“„‘([{*_")
-SENTENCE_END = set(".!?…—–-•*#>|")
-POLITE_PRONOUNS = {"вы", "вас", "вам", "вами", "ваш", "ваша", "ваше", "ваши", "вашего",
-                   "вашей", "вашему", "вашим", "ваших", "вашу", "вашем"}
-TITLES = {"mr", "mrs", "ms", "dr", "prof", "sir"}
+SENTENCE_END = set(".!?…:;•*#>-–—")
+NOT_NAMES = {
+    "вы", "вас", "вам", "вами", "ваш", "ваша", "ваше", "ваши", "вашего", "вашей", "вашему",
+    "вашим", "ваших", "вашу", "вашем", "mr", "mrs", "ms", "dr", "prof", "sir", "may",
+    "the", "a", "an", "this", "that", "these", "those", "it", "its", "we", "you", "he", "she",
+    "they", "our", "my", "your", "their", "his", "her", "and", "but", "or", "if", "when",
+    "in", "on", "at", "for", "to", "of", "by", "with", "as", "there", "here", "then", "so",
+    "no", "not", "all", "any", "each", "every", "please",
+    "это", "этот", "эта", "эти", "мы", "я", "он", "она", "они", "оно", "в", "на", "по", "для",
+    "с", "со", "к", "о", "об", "и", "а", "но", "или", "если", "когда", "как", "что", "при",
+    "после", "до", "из", "у", "за", "не", "нет", "да", "так", "также", "однако",
+}
 QUOTE_DELIMITERS = ("\"", "«", "»", "“", "”", "„")
+QUOTE_EDGE_PUNCTUATION = ".,;:!?… "
+
+
+def _blank(match: re.Match[str]) -> str:
+    return " " * len(match.group(0))
 
 
 def _canonical_number(raw: str) -> str:
@@ -147,13 +185,37 @@ def _canonical_number(raw: str) -> str:
     return value
 
 
-def _numbers(prose: str) -> Counter[str]:
-    counts: Counter[str] = Counter()
-    for match in DOTTED_DATE.finditer(prose):
-        counts.update(str(int(part)) for part in re.split(r"[./]", match.group(0)))
-    rest = DOTTED_DATE.sub(lambda match: " " * len(match.group(0)), prose)
-    counts.update(_canonical_number(match.group(0)) for match in NUMBER.finditer(rest))
-    return counts
+def _unit_after(prose: str, end: int) -> str:
+    match = UNIT_AFTER.match(prose, end)
+    if not match:
+        return ""
+    glued, symbol, word = match.groups()
+    if glued:
+        return GLUED_UNITS.get(glued.lower(), "")
+    candidate = symbol or word
+    for key, pattern in UNITS:
+        if pattern.fullmatch(candidate) or pattern.fullmatch(candidate.rstrip(".")):
+            return key
+    return ""
+
+
+def _sign_before(prose: str, start: int) -> str:
+    if start and prose[start - 1] in "-−+" and (start == 1 or prose[start - 2] in " \t\n([«\"“"):
+        return "+" if prose[start - 1] == "+" else "-"
+    return ""
+
+
+def _numbers(prose: str) -> tuple[Counter[str], Counter[str]]:
+    """Numeric dates (ordered parts) and other numbers (with sign and unit), counted separately."""
+    dates = Counter(".".join(str(int(part)) for part in re.split(r"[./-]", match.group(0)))
+                    for match in NUMERIC_DATE.finditer(prose))
+    rest = NUMERIC_DATE.sub(_blank, prose)
+    numbers: Counter[str] = Counter()
+    for match in NUMBER.finditer(rest):
+        unit = _unit_after(rest, match.end())
+        value = _sign_before(rest, match.start()) + _canonical_number(match.group(0))
+        numbers[f"{value} {unit}" if unit else value] += 1
+    return dates, numbers
 
 
 def _lexicon_counts(prose: str, lexicon: list[tuple[str, re.Pattern[str]]]) -> Counter[str]:
@@ -174,7 +236,7 @@ def _normalize_words(prose: str) -> str:
 
 def _name_key(word: str) -> str:
     word = re.sub(r"['’]s$", "", word)
-    if word.isupper() and len(word) >= 2:
+    if word.isupper():
         return word
     lowered = word.lower().replace("ё", "е")
     if re.search(r"[а-я]", lowered):
@@ -183,22 +245,27 @@ def _name_key(word: str) -> str:
 
 
 def _is_sentence_initial(text: str, start: int) -> bool:
+    """True at the start of the text, a sentence, a paragraph, a list item, or a heading.
+
+    A single line break inside a hard-wrapped paragraph does not start a sentence; a table
+    cell does not either, so names in tables are compared.
+    """
     index = start - 1
     while index >= 0 and (text[index].isspace() or text[index] in OPENERS):
-        if text[index] == "\n":
-            return True
         index -= 1
-    return index < 0 or text[index] in SENTENCE_END
+    if index < 0 or text.count("\n", index + 1, start) > 1:
+        return True
+    return text[index] in SENTENCE_END
 
 
 def _names(prose: str) -> set[str]:
     names: set[str] = set()
-    for match in WORD.finditer(prose):
+    for match in TOKEN.finditer(prose):
         word = match.group(0)
-        if len(word) < 2 or not word[0].isupper():
+        if len(word) < 2 or not word[0].isupper() or re.search(r"[\d_]", word):
             continue
         lowered = word.lower().replace("’", "'")
-        if lowered in POLITE_PRONOUNS or lowered in TITLES or lowered.startswith("i'"):
+        if lowered in NOT_NAMES or lowered.startswith("i'"):
             continue
         if any(pattern.fullmatch(lowered) for _, pattern in DATE_WORDS):
             continue
@@ -219,25 +286,34 @@ def _mentions(prose: str, key: str) -> bool:
 
 
 def _quotations(text: str) -> Counter[str]:
-    merged: list[list[int]] = []
-    for start, end in sorted(_lint.quoted_ranges(_lint.strip_code_fences(text))):
-        if merged and start <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], end)
+    """Blockquotes (consecutive lines joined) and inline quotations not inside them."""
+    scan = _lint.mask_code(text, mask_urls=False)
+    blocks: list[list[int]] = []
+    for start, end in _lint._blockquote_ranges(scan):
+        if blocks and start <= blocks[-1][1]:
+            blocks[-1][1] = max(blocks[-1][1], end)
         else:
-            merged.append([start, end])
+            blocks.append([start, end])
+    inline = [(start, end) for start, end in _lint.quoted_ranges(scan)
+              if not any(b_start <= start and end <= b_end for b_start, b_end in blocks)]
+    inline = [(start, end) for start, end in inline
+              if not any((o_start, o_end) != (start, end) and o_start <= start and end <= o_end
+                         for o_start, o_end in inline)]
     items: Counter[str] = Counter()
-    for start, end in merged:
+    for start, end in [tuple(block) for block in blocks] + inline:
         value = re.sub(r"(?m)^[ \t]*(?:>[ \t]?)+", "", text[start:end]).strip()
         if len(value) >= 2 and value[0] in QUOTE_DELIMITERS and value[-1] in QUOTE_DELIMITERS:
             value = value[1:-1]
-        value = " ".join(value.replace("’", "'").split())
+        value = " ".join(value.replace("’", "'").split()).strip(QUOTE_EDGE_PUNCTUATION)
         if value:
             items[value] += 1
     return items
 
 
-def _blank(match: re.Match[str]) -> str:
-    return " " * len(match.group(0))
+def _code(text: str) -> Counter[str]:
+    """Code compared line by line; indentation counts, trailing spaces and line endings do not."""
+    return Counter("\n".join(line.rstrip() for line in text[start:end].splitlines()).strip("\n")
+                   for start, end in _lint.code_ranges(text))
 
 
 def _prose(text: str) -> str:
@@ -248,24 +324,25 @@ def _prose(text: str) -> str:
 
 def profile(text: str) -> dict[str, Counter[str]]:
     """Counts of meaning-bearing items, by category."""
-    code = Counter(" ".join(text[start:end].split()) for start, end in _lint.code_ranges(text))
     without_code = _lint.mask_code(text, mask_urls=False)
     links = Counter(match.group(0).rstrip(".,;:!?»”\"'") for match in URL_OR_EMAIL.finditer(without_code))
     citations = Counter(match.group(0) for match in CITATION.finditer(URL_OR_EMAIL.sub(_blank, without_code)))
     prose = _prose(text)
     words = _normalize_words(prose)
+    dates, numbers = _numbers(prose)
     return {
-        "number": _numbers(prose),
+        "date": dates,
+        "number": numbers,
         "currency": _lexicon_counts(prose, CURRENCY),
-        "date word": _lexicon_counts(words, DATE_WORDS),
+        "date word": _lexicon_counts(words, DATE_WORDS) + _lexicon_counts(prose, EN_MONTHS),
         "link": links,
-        "code": code,
+        "code": _code(text),
         "quotation": _quotations(text),
         "citation": citations,
         "qualifier": _lexicon_counts(words, QUALIFIERS),
         "modality": _lexicon_counts(words, MODALITY),
         "negation": _lexicon_counts(words, NEGATION),
-        "first person": _lexicon_counts(words, FIRST_PERSON),
+        "first person": _lexicon_counts(_normalize_words(ALL_CAPS.sub(_blank, prose)), FIRST_PERSON),
         "speech act": _lexicon_counts(words, SPEECH_ACTS),
         "name": Counter(_names(prose)),
     }

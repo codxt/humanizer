@@ -29,8 +29,8 @@ PATTERNS = [
     ("russian chatbot residue", re.compile(r"(?<!\w)(?:давайте разбер[её]мся|с радостью помогу)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"(?<!\w)(?:would you like me to|let me know if you(?:(?:'|’)d| would)? like|is there anything else (?:i can|you(?:(?:'|’)d| would) like)|delete this (?:section|note) before (?:submission|submitting|publishing|publication)|here(?:(?:'|’)s| is) (?:a|the|your) (?:revised|updated|polished|rewritten|improved) (?:version|draft|text)|it(?:(?:'|’)s| is) important to (?:note|remember)|certainly!|you(?:(?:'|’)re| are) absolutely right)(?!\w)", re.I)),
     ("russian chatbot residue", re.compile(r"(?<!\w)(?:хотите, я (?:подготовлю|сделаю|напишу|составлю)|вот (?:исправленный|обновл[её]нный|переработанный|улучшенный) (?:вариант|текст))(?!\w)", re.I)),
-    ("chatbot artifact", re.compile(r"(?:contentReference\[oaicite:\d+\](?:\{index=\d+\})?|\boaicite:\d+|\boai_citation\b|\bturn\d+(?:search|news|view|fetch|image|file)\d+\b|\[cite(?::\s*\d+(?:\s*,\s*\d+)*|_start|_end)\]|\bgrok_(?:card|render_citation_card_json)\b|【\d+(?::\d+)?†[^】\n]{0,80}】)")),
-    ("placeholder text", re.compile(r"(?:\bINSERT_[A-Z0-9_]{3,}\b|(?i:\[(?:insert|add|вставьте|укажите|добавьте)\b[^\]\n]{1,60}\]|\[(?:year|date|founder names?|company name|your name|full name|дата(?: рождения)?|год|название компании|имя и фамилия|фио)\]|\b(?:19|20)\d\d-xx-xx\b|\bxx\.xx\.(?:19|20)\d\d\b))")),
+    ("chatbot artifact", re.compile(r"(?:contentReference\[oaicite:\d+\](?:\{index=\d+\})?|\boaicite:\d+|\boai_citation\b|turn\d+(?:search|news|view|fetch|image|file)\d+\b|\[cite(?::\s*\d+(?:\s*,\s*\d+)*|_start|_end)\]|\bgrok_(?:card|render_citation_card_json)\b|【\d+(?::\d+)?†[^】\n]{0,80}】)")),
+    ("placeholder text", re.compile(r"(?:\bINSERT_[A-Z0-9_]{3,}\b|(?i:\[(?:insert|add|вставьте|укажите|добавьте)\b[^\]\n]{1,60}\](?![(:\[])|\[(?:year|date|founder names?|company name|your name|full name|дата(?: рождения)?|год|название компании|имя и фамилия|фио)\](?![(:\[])|\b(?:19|20)\d\d-xx-xx\b|\bxx\.xx\.(?:19|20)\d\d\b))")),
     ("abstract metaphor noun", re.compile(r"\b(?:substrate|locus|nexus|bedrock|north star|flywheel)s?\b", re.I)),
     ("significance claim", re.compile(r"\b(?:marks? a (?:major |key |pivotal )?(?:shift|turning point|milestone)|statement of intent|new era|broader trend|testament to|underscores? (?:the )?(?:importance|significance))\b", re.I)),
     ("formulaic contrast", re.compile(r"\b(?:not (?:just|only|simply)\b|not\s+[^.!?;:]{1,80}\s+but\s+[^.!?;:]{1,80}|less about\s+[^.!?;:]{1,80}\s+more about)\b", re.I)),
@@ -60,7 +60,7 @@ MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
 INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")
-URL = re.compile(r"https?://[^\s<>]+")
+URL = re.compile(r"https?://[^\s<>\"«»“”„]+")  # quote marks end a link, so quoted links stay quoted
 
 
 def _mask(value: str) -> str:
@@ -249,8 +249,8 @@ def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
     """Findings as (line, label, excerpt, quoted); quoted matches sit in a quotation."""
     text = path.read_text(encoding="utf-8")
     scan = strip_code_fences(text)
-    ranges = quoted_ranges(scan)
     url_scan = mask_code(text, mask_urls=False)
+    ranges = quoted_ranges(url_scan)  # links stay visible so a quote that closes after a link is found
     detailed: list[tuple[int, str, str, bool]] = []
     for source, patterns in ((scan, PATTERNS), (url_scan, URL_PATTERNS)):
         for label, pattern in patterns:
