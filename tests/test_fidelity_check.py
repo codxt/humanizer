@@ -112,6 +112,21 @@ class FidelityCheckTests(unittest.TestCase):
                       changes("The deal was signed with\nAnna Smith on Monday.",
                               "The deal was signed with\nJohn Smith on Monday."))
 
+    def test_long_all_caps_name_may_change_case(self):
+        found = changes("Договор с ООО РОМАШКА подписан.", "Договор с ООО Ромашка подписан.")
+        self.assertNotIn(("lost", "name", "РОМАШКА"), found)
+        self.assertIn(("lost", "name", "US"), changes("The US approved it.", "The us approved it."))
+
+    def test_wednesday_only_as_a_day(self):
+        self.assertIn(("lost", "date word", "wednesday"), changes("Ответим в среду.", "Ответим на этой неделе."))
+        self.assertEqual(check.compare("Это важно в среде разработчиков.", "Это важно для разработчиков."), [])
+
+    def test_long_unspaced_input_is_linear(self):
+        import time
+        start = time.monotonic()
+        check.profile("a.b.c.d." * 8000)
+        self.assertLess(time.monotonic() - start, 5)
+
     def test_identifiers_are_not_names(self):
         for text in ["We use Python3 and GPT4 daily.", "See THIRD_PARTY_NOTICES.md and my_Variable.",
                      "HTTP2 and UTF8 and ISO9001 apply."]:

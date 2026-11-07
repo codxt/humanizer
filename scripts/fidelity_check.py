@@ -19,8 +19,9 @@ A clean result is not proof of fidelity either: the check cannot see tense or
 aspect ("refunding" vs "refunded"), a changed actor without a pronoun, a
 condition moved to another clause, or a changed scope; it ignores numbers
 written as words; and it does not compare a name that only opens a sentence,
-a paragraph, a list item or a heading. English "May" counts as a modal verb,
-not a month. Text inside code is compared as code only.
+a paragraph, a list item or a heading. Russian names are matched by stem, so
+names that differ only by an ending count as one. English "May" counts as a
+modal verb, not a month. Text inside code is compared as code only.
 
 Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 """
@@ -48,11 +49,13 @@ def _lexicon(entries: dict[str, str]) -> list[tuple[str, re.Pattern[str]]]:
 MONTHS = [("january", "январ"), ("february", "феврал"), ("march", "март"), ("april", "апрел"),
           ("may", "ма[йяе]"), ("june", "июн"), ("july", "июл"), ("august", "август"),
           ("september", "сентябр"), ("october", "октябр"), ("november", "ноябр"), ("december", "декабр")]
-# Matched in lowercased text. "среда" is left out because it also means "environment".
+# Matched in lowercased text. "среда" also means "environment", so it counts only after a preposition
+# that marks a day ("в среду", "до среды", "по средам").
 DATE_WORDS = _lexicon({
     **{month: stem if stem.endswith("]") else stem + r"\w*" for month, stem in MONTHS},
     "monday": r"monday|понедельник\w*", "tuesday": r"tuesday|вторник\w*",
-    "wednesday": r"wednesday", "thursday": r"thursday|четверг\w*",
+    "wednesday": r"wednesday|(?:(?<=в )|(?<=во )|(?<=на ))среду|(?:(?<=до )|(?<=со )|(?<=с )|(?<=после ))среды"
+                 r"|(?<=по )средам|(?<=к )среде", "thursday": r"thursday|четверг\w*",
     "friday": r"friday|пятниц\w*", "saturday": r"saturday|суббот\w*",
     "sunday": r"sunday|воскресень\w*",
     "today": r"today|tonight|сегодня", "tomorrow": r"tomorrow|завтра",
@@ -145,7 +148,7 @@ CONTRACTIONS = [
     (re.compile(r"['’]m\b"), " am"),
 ]
 
-URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]\"«»“”„]+|www\.[^\s<>()\[\]\"«»“”„]+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]\"«»“”„]+|www\.[^\s<>()\[\]\"«»“”„]+|(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 CITATION = re.compile(r"\[\d+(?:\s*[,–-]\s*\d+)*\]|\[@[\w:.-]+\]|\[\^[\w-]+\]")
 NUMERIC_DATE = re.compile(r"(?<![\d.,/-])(?:\d{1,4}[./]\d{1,2}[./]\d{1,4}|\d{4}-\d{1,2}-\d{1,2})(?![\d.,/-]?\d)")
 NUMBER = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*)")
@@ -277,8 +280,10 @@ def _names(prose: str) -> set[str]:
 
 
 def _mentions(prose: str, key: str) -> bool:
-    if key.isupper():
+    if key.isupper() and len(key) < 4:
         return re.search(r"(?<!\w)" + re.escape(key) + r"(?!\w)", prose) is not None
+    if key.isupper():  # a longer all-caps name may change case: «РОМАШКА» and «Ромашка» are one company
+        key = _name_key(key.capitalize())
     lowered = prose.lower().replace("ё", "е")
     if re.search(r"[а-я]", key):
         return re.search(r"(?<!\w)" + re.escape(key), lowered) is not None
