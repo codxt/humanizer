@@ -232,7 +232,7 @@ class ProseLintTests(unittest.TestCase):
     def test_inline_code_scanner_matches_reference_regex(self):
         import random
         rng = random.Random(7)
-        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "b`c", "````"]
+        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "\r", "\f", "\v", "\x85", "\u2028", "b`c", "````"]
         for _ in range(5000):
             text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
             self.assertEqual(lint._inline_code_spans(text),
@@ -242,7 +242,11 @@ class ProseLintTests(unittest.TestCase):
         import time
         start = time.monotonic()
         lint.code_ranges("`" * 200000 + " a ` b " * 20000)
+        lint.code_ranges("".join("`" * length + "a" for length in range(1, 900)))  # distinct run lengths
         self.assertLess(time.monotonic() - start, 2)
+
+    def test_form_feed_does_not_end_inline_code(self):
+        self.assertEqual(self.scan("`x\fthat distinction matters`\n"), [])
 
     def test_glued_artifact_markers(self):
         text = "Revenue grew in 1998turn0search0. It closed citeturn0news2 later.\n"

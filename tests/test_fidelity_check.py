@@ -132,6 +132,43 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("added", "name", "сидор"),
                       changes("Подписал И. Петров.", "Подписал И. Сидоров."))
 
+    def test_business_prefix_applies_to_every_time_unit(self):
+        self.assertEqual(changes("We respond within 10 working hours.", "We respond within 10 working minutes."),
+                         {("lost", "number", "10 business hour"), ("added", "number", "10 business minute")})
+        self.assertIn(("lost", "number", "10 business hour"),
+                      changes("Срок 10 рабочих часов.", "Срок 10 часов."))
+
+    def test_dotted_and_russian_abbreviations(self):
+        self.assertIn(("added", "name", "congress"),
+                      changes("The U.S. Treasury issued notes.", "The U.S. Congress issued notes."))
+        self.assertIn(("added", "name", "sidorov"), changes("Ph.D. Ivanov signed.", "Ph.D. Sidorov signed."))
+        self.assertIn(("added", "name", "сидор"), changes("См. Петров в приложении.", "См. Сидоров в приложении."))
+
+    def test_ruble_adjectives(self):
+        self.assertIn(("lost", "currency", "RUB"), changes("Рублёвые активы выросли.", "Валютные активы выросли."))
+        self.assertEqual(check.compare("Оплата рублём.", "Оплата в рублях."), [])
+
+    def test_appreciation_as_gratitude_only(self):
+        self.assertEqual(check.compare("The asset appreciation was noted.", "The asset value increase was noted."), [])
+        self.assertEqual(check.compare("We express our appreciation for your patience.",
+                                       "We express our gratitude for your patience."), [])
+
+    def test_state_code_me_is_not_first_person(self):
+        self.assertNotIn(("lost", "first person", "i/me/my"), changes("Maine (ME) operations.", "Maine operations."))
+
+    def test_sign_kept_in_a_number_list(self):
+        self.assertIn(("lost", "number", "-20"), changes("Readings 1 2 -20 were logged.", "Readings 1 2 20 were logged."))
+
+    def test_wednesday_with_na_and_modifier(self):
+        self.assertEqual(check.compare("Встреча на прошлую среду.", "Встреча в прошлую среду."), [])
+
+    def test_inline_code_inner_space_counts(self):
+        self.assertTrue(changes("Run ` make` now.", "Run `make` now."))
+        self.assertEqual(check.compare("Run `` `x` `` now.", "Run `` `x` `` now."), [])
+
+    def test_mixed_script_word_compares_clean_with_itself(self):
+        self.assertEqual(check.compare("We met BweMEдней yesterday.", "We met BweMEдней yesterday."), [])
+
     def test_names_after_a_colon_are_compared(self):
         self.assertIn(("added", "name", "jane"), changes("Attendees: Anna and John.", "Attendees: Jane and John."))
         self.assertIn(("added", "name", "jane"),

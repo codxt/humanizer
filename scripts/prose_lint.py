@@ -61,6 +61,7 @@ MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")  # reference definition; see _inline_code_spans
 BACKTICK_RUN = re.compile(r"`+")
+LINE = re.compile(r"[^\r\n]+(?:\r\n|\r|\n)?|\r\n|\r|\n")
 URL = re.compile(r"https?://[^\s<>\"«»“”„]+")  # quote marks end a link, so quoted links stay quoted
 
 
@@ -107,7 +108,7 @@ def _inline_code_spans(text: str) -> list[tuple[int, int]]:
     the next run of the same length on the same line; an unpaired run opens nothing."""
     spans: list[tuple[int, int]] = []
     offset = 0
-    for line in text.splitlines(keepends=True):
+    for line in LINE.findall(text):  # only \r and \n end a line, as in INLINE_CODE
         runs = [match.span() for match in BACKTICK_RUN.finditer(line)]
         following: list[int] = [-1] * len(runs)
         last_seen: dict[int, int] = {}

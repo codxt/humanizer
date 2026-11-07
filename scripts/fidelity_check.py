@@ -58,7 +58,7 @@ DATE_WORDS = _lexicon({
     **{month: stem if stem.endswith("]") else stem + r"\w*" for month, stem in MONTHS},
     "monday": r"monday|понедельник\w*", "tuesday": r"tuesday|вторник\w*",
     "wednesday": r"wednesday|(?:(?<=в )|(?<=во ))(?:(?:эту|ту|прошлую|следующую|ближайшую|каждую) )?среду"
-                 r"|(?<=на )(?:эту|следующую|ближайшую) среду|(?:(?<=до )|(?<=со )|(?<=с )|(?<=после ))среды"
+                 r"|(?<=на )(?:эту|ту|прошлую|следующую|ближайшую|каждую) среду|(?:(?<=до )|(?<=со )|(?<=с )|(?<=после ))среды"
                  r"|(?<=по )средам|(?<=к )среде", "thursday": r"thursday|четверг\w*",
     "friday": r"friday|пятниц\w*", "saturday": r"saturday|суббот\w*",
     "sunday": r"sunday|воскресень\w*",
@@ -103,7 +103,8 @@ NEGATION = _lexicon({key: key for key in [
     "не", "нет", "ни", "никогда", "никто", "ничего", "нигде", "без",
 ]})
 
-# Counted with the token "US" blanked, so the country is not "us"; "i.e." is not "I".
+# Counted with the tokens "US" and "ME" blanked (country, state code), so they are not "us"/"me";
+# "i.e." is not "I". All-caps "WE" and "МЫ" still count.
 FIRST_PERSON = _lexicon({
     "i/me/my": r"i(?!\.\w)|me|my|mine|myself",
     "we/us/our": r"we|us|our|ours|ourselves",
@@ -114,7 +115,8 @@ FIRST_PERSON = _lexicon({
 SPEECH_ACTS = _lexicon({
     "apology": r"sorry|apolog(?:y|ies|i[sz](?:e|es|ed|ing))|regret(?:s|ted|ting|tably|ful|fully)?"
                r"|извин\w*|прошу прощения|прости(?:те)?|сожале\w*",
-    "thanks": r"thank(?:s|ed|ing|ful)?|grateful|appreciat(?:e|es|ed|ing|ion|ive)"
+    "thanks": r"thank(?:s|ed|ing|ful)?|thankful|grateful|gratitude|appreciat(?:e|es|ed|ing)"
+              r"|appreciation(?= (?:for|of (?:your|our|their|his|her)))"
               r"|благодар\w*|спасибо|признательн\w*",
 })
 
@@ -122,7 +124,7 @@ CURRENCY = [(key, re.compile(pattern)) for key, pattern in {
     "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b|(?<=\d )pounds?\b)",
     "USD": r"\$|\bUSD\b|(?i:\bdollars?\b|(?<!\w)доллар\w*)",
     "EUR": r"€|\bEUR\b|(?i:\beuros?\b|(?<!\w)евро(?!\w))",
-    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|е|ей|ям|ях|ями|и)(?!\w))",
+    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|ём|е|ей|ям|ях|ями|и)(?!\w)|(?<!\w)рубл[её]в\w*)",
     "KZT": r"₸|\bKZT\b|(?i:\btenge\b|(?<!\w)тенге(?!\w))",
     "AED": r"\bAED\b|(?i:\bdirhams?\b|(?<!\w)дирхам\w*)",
     "CHF": r"\bCHF\b",
@@ -137,10 +139,10 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
     ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
-    ("business day", r"(?:business|working|рабоч\w+)\s+(?:days?|дн(?:я|ей|и)|день)"),
     ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
 ]]
+BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
 UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
@@ -158,7 +160,7 @@ URL_OR_EMAIL = re.compile(r"https?://[^\s<>()\[\]\"«»“”„]+|www\.[^\s<>()
 CITATION = re.compile(r"\[\d+(?:\s*[,–-]\s*\d+)*\]|\[@[\w:.-]+\]|\[\^[\w-]+\]")
 NUMERIC_DATE = re.compile(r"(?<![\d.,/-])(?:\d{1,4}[./]\d{1,2}[./]\d{1,4}|\d{4}-\d{1,2}-\d{1,2})(?![\d.,/-]?\d)")
 NUMBER = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*)")
-COUNTRY_US = re.compile(r"(?<!\w)US(?!\w)")
+COUNTRY_US = re.compile(r"(?<!\w)(?:US|ME)(?!\w)")
 TOKEN = re.compile(r"\w+(?:['’-]\w+)*")
 OPENERS = set("\"'«“„‘([{*_")
 SENTENCE_END = set(".!?…•*#>-–—")  # a colon does not start a sentence: "Attendees: Anna"
@@ -166,7 +168,8 @@ ABBREVIATIONS = {
     "mr", "mrs", "ms", "dr", "prof", "st", "sr", "jr", "vs", "cf", "e.g", "i.e", "etc", "inc",
     "ltd", "co", "corp", "no", "vol", "fig", "approx", "dept", "gen", "col", "capt", "lt", "gov",
     "sen", "rep", "rev", "hon", "г", "гг", "т.е", "т.к", "т.н", "им", "ул", "д", "др", "проф",
-    "акад", "тов", "ген", "г-н", "г-жа", "св",
+    "акад", "тов", "ген", "г-н", "г-жа", "св", "см", "стр", "рис", "табл", "напр", "гл", "ст", "ч",
+    "п", "пп", "тыс", "млн", "млрд", "руб", "коп", "долл",
 }
 NOT_NAMES = {
     "вы", "вас", "вам", "вами", "ваш", "ваша", "ваше", "ваши", "вашего", "вашей", "вашему",
@@ -209,16 +212,20 @@ def _unit_after(prose: str, end: int) -> str:
     if glued:
         return GLUED_UNITS.get(glued.lower(), "")
     candidate = symbol or word
+    prefix = ""
+    business = BUSINESS_PREFIX.match(candidate)
+    if business:  # "10 working hours" is "10 business hour", not "10 hour"
+        prefix, candidate = "business ", candidate[business.end():]
     for key, pattern in UNITS:
         if pattern.fullmatch(candidate) or pattern.fullmatch(candidate.rstrip(".")):
-            return key
+            return prefix + key
     return ""
 
 
 def _sign_before(prose: str, start: int) -> str:
     if start and prose[start - 1] in "-−+" and (start == 1 or prose[start - 2] in " \t\n([«\"“"):
-        if re.search(r"\d[ \t]+$", prose[max(0, start - 12):start - 1]):
-            return ""  # "10 -20" is a range, not minus twenty
+        if re.search(r"(?:^|[^\d\s.,])[ \t]*\d[\d.,]*[ \t]+$", prose[max(0, start - 40):start - 1]):
+            return ""  # "pages 10 -20" is a range; "readings 1 2 -20" keeps the sign
         return "+" if prose[start - 1] == "+" else "-"
     return ""
 
@@ -258,7 +265,7 @@ def _name_key(word: str) -> str:
     if word.isupper():
         return word
     lowered = word.lower().replace("ё", "е")
-    if re.search(r"[а-я]", lowered):
+    if re.fullmatch(r"[а-я'-]+", lowered):
         return lowered[:5]
     return lowered
 
@@ -279,8 +286,10 @@ def _is_sentence_initial(text: str, start: int) -> bool:
         while token_start > 0 and (text[token_start - 1].isalpha() or text[token_start - 1] in ".-"):
             token_start -= 1
         token = text[token_start:index].lower()
-        if token in ABBREVIATIONS or (len(token) == 1 and token.isalpha()):
-            return False  # "Dr. Ivanov", "e.g. Acme", "И. Петров"
+        parts = token.split(".")
+        dotted_short = len(parts) > 1 and all(0 < len(part) <= 2 for part in parts)
+        if token in ABBREVIATIONS or (len(token) == 1 and token.isalpha()) or dotted_short:
+            return False  # "Dr. Ivanov", "e.g. Acme", "U.S. Treasury", "И. Петров"
     return text[index] in SENTENCE_END
 
 
@@ -352,7 +361,10 @@ def _code_body(segment: str) -> str:
         if lines and re.fullmatch(r" {0,3}(?:`{3,}|~{3,})[ \t]*", lines[-1]):
             lines = lines[:-1]
     else:
-        lines = [segment.strip("`").strip()]
+        body = segment.strip("`")
+        if len(body) > 2 and body.startswith(" ") and body.endswith(" ") and body.strip():
+            body = body[1:-1]  # CommonMark drops one padding space on each side
+        lines = [body]
     return "\n".join(line.rstrip() for line in lines).strip("\n")
 
 
