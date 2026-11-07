@@ -149,6 +149,27 @@ class ProseLintTests(unittest.TestCase):
                 code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
                 self.assertEqual(code, 1)
 
+    def test_match_across_blockquote_lines_is_quoted(self):
+        code, out, _, _ = self.run_cli("> [cite:\n1] was in the pasted answer.\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 0)
+        self.assertIn("chatbot artifact [quoted]", out)
+        code, _, _, _ = self.run_cli("> Quoted line.\n\n[cite: 1] outside.\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
+
+    def test_quotation_ending_in_a_digit_is_closed(self):
+        text = 'The model replied "as an AI language model, I cannot confirm version 2" and stopped.\n'
+        code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+        self.assertIn("[quoted]", out)
+        code, _, _, _ = self.run_cli('He wrote "Version 2" and the reply was: Hope this helps."\n',
+                                     "--fail-on", "assistant residue")
+        self.assertEqual(code, 1)
+        # documented: an inch mark inside an open quotation ends it
+        code, out, _, _ = self.run_cli('He said "as an AI language model, the 6" screen is fine.\n',
+                                       "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+        self.assertIn("[quoted]", out)
+
     def test_unclosed_quote_does_not_exempt_residue(self):
         code, _, _, _ = self.run_cli('He wrote "Hope this helps.\n\nNext paragraph.\n', "--fail-on", "assistant residue")
         self.assertEqual(code, 1)
@@ -203,6 +224,125 @@ class ProseLintTests(unittest.TestCase):
     def test_abstract_metaphor_noun_is_candidate(self):
         findings = self.scan("The flywheel is the north star of this substrate.\n")
         self.assertEqual([item[1] for item in findings].count("abstract metaphor noun"), 3)
+
+    def labels(self, text):
+        return [item[1] for item in self.scan(text)]
+
+    def test_chatbot_citation_markup(self):
+        text = (
+            "Revenue grew in 2025. :contentReference[oaicite:1]{index=1}\n"
+            "It opened in 1998 turn0search3 and closed in 2004 [cite: 2, 5].\n"
+            "The mayor resigned 【4:0†source】 and grok_card followed.\n"
+        )
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 5)
+
+    def test_ai_referral_parameter_in_link(self):
+        text = (
+            "Source: https://www.theguardian.com/sport/2025/feb/11/interview?utm_source=chatgpt.com\n"
+            "Also [this](https://example.org/a?x=1&referrer=grok.com) and https://site.test/p?utm_source=openai.\n"
+        )
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 3)
+
+    def test_ordinary_tracking_and_code_markup_are_not_artifacts(self):
+        text = (
+            "Read https://example.org/post?utm_source=newsletter&utm_medium=email.\n"
+            "The leak looks like `contentReference[oaicite:1]` or `?utm_source=chatgpt.com`.\n"
+        )
+        self.assertNotIn("chatbot artifact", self.labels(text))
+
+    def test_inline_code_scanner_matches_reference_regex(self):
+        import random
+        rng = random.Random(7)
+        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "\r", "\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029", "b`c", "````"]
+        for _ in range(5000):
+            text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
+            self.assertEqual(lint._inline_code_spans(text),
+                             [match.span() for match in lint.INLINE_CODE.finditer(text)], repr(text))
+
+    def test_long_backtick_runs_are_linear(self):
+        import time
+        start = time.monotonic()
+        lint.code_ranges("`" * 200000 + " a ` b " * 20000)
+        lint.code_ranges("".join("`" * length + "a" for length in range(1, 900)))  # distinct run lengths
+        self.assertLess(time.monotonic() - start, 2)
+
+    def test_unicode_separator_does_not_end_a_fence(self):
+        ranges = lint.code_ranges("```\na\u2029```\nb\n")
+        self.assertEqual(ranges, [(0, len("```\na\u2029```\nb\n"))])
+
+    def test_lone_cr_ends_a_closing_fence(self):
+        self.assertEqual(lint.code_ranges("```\na\n```\rprose"), [(0, 10)])
+
+    def test_form_feed_does_not_end_inline_code(self):
+        self.assertEqual(self.scan("`x\fthat distinction matters`\n"), [])
+
+    def test_glued_artifact_markers(self):
+        text = "Revenue grew in 1998turn0search0. It closed citeturn0news2 later.\n"
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 2)
+
+    def test_quoted_link_artifact_does_not_block(self):
+        for text in ['He wrote "https://x.test/?utm_source=chatgpt.com".\n',
+                     "Он написал: «https://x.test/?utm_source=chatgpt.com».\n",
+                     "He wrote “https://x.test/?utm_source=chatgpt.com” and left.\n"]:
+            code, out, _, _ = self.run_cli(text, "--fail-on", "chatbot artifact")
+            self.assertEqual(code, 0, text)
+            self.assertIn("chatbot artifact [quoted]", out, text)
+
+    def test_unquoted_link_artifact_after_quoted_link_blocks(self):
+        text = 'See "https://a.test/" and https://b.test/?utm_source=openai today.\n'
+        code, _, _, _ = self.run_cli(text, "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
+
+    def test_artifact_label_can_block(self):
+        code, out, _, _ = self.run_cli("Founded in 1990.turn0search0\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
+        self.assertIn("[blocking]", out)
+
+    def test_placeholder_text(self):
+        text = (
+            "Travomate was founded in [Year] by [Founder Names].\n"
+            "Accessed 2026-xx-xx at INSERT_SOURCE_URL_01 and https://example.com/source2.\n"
+            "Компания [Название компании] основана [Дата рождения]; [вставьте ссылку].\n"
+        )
+        self.assertEqual(self.labels(text).count("placeholder text"), 8)
+
+    def test_ordinary_brackets_are_not_placeholders(self):
+        text = "As reported [1], the fee [sic] was waived (if applicable) by the insert team.\n"
+        self.assertNotIn("placeholder text", self.labels(text))
+
+    def test_markdown_link_text_is_not_a_placeholder(self):
+        text = "See [Add note](https://example.org/n) and [Year][ref].\n\n[date]: https://example.org/x\n"
+        self.assertNotIn("placeholder text", self.labels(text))
+
+    def test_new_chatbot_residue(self):
+        text = (
+            "Would you like me to format it? Here is a revised version of the text.\n"
+            "It's important to note that delete this section before submission.\n"
+            "Хотите, я подготовлю письмо? Вот исправленный вариант.\n"
+        )
+        found = self.labels(text)
+        self.assertEqual(found.count("chatbot residue"), 4)
+        self.assertEqual(found.count("russian chatbot residue"), 2)
+
+    def test_corrective_disclaimer(self):
+        text = (
+            "The account should be treated as tradition rather than verified fact.\n"
+            "The records do not themselves establish his role, based on available information.\n"
+            "Это следует рассматривать как предание, а не как факт. Само по себе не доказывает связь.\n"
+        )
+        self.assertEqual(self.labels(text).count("corrective disclaimer"), 5)
+
+    def test_plain_evidence_limit_is_not_a_disclaimer(self):
+        text = "The 2019 extract lists him as director; no later extract was found. A refund in progress does not establish completion.\n"
+        self.assertNotIn("corrective disclaimer", self.labels(text))
+
+    def test_procedural_assurance(self):
+        text = (
+            "Revised the lead to ensure neutrality while preserving the original meaning.\n"
+            "Improved clarity and flow in line with the guidelines.\n"
+            "Текст отредактирован с сохранением исходного смысла; улучшена читаемость.\n"
+        )
+        self.assertEqual(self.labels(text).count("procedural assurance"), 6)
 
 
 if __name__ == "__main__":

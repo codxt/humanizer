@@ -19,17 +19,25 @@ For ordinary substantive cleanup, load `references/patterns.md`. Load `reference
 
 For correspondence, promises, deadlines, disputed decisions, policies, or multiple source inputs, load `references/work-fidelity.md`. Its protection rules apply in all modes; the reference supplies examples and the detailed comparison method.
 
+For commit messages, PR descriptions, changelogs, log entries, edit summaries, and audit reports, apply `references/patterns.md` → Change reports.
+
+## Editing contract
+
+A pattern match is a candidate. It becomes a finding only when its context shows that it weakens the text, and an edit only when the requested mode and scope allow one. Detection alone never authorizes a rewrite. Identify the findings and their exact spans before changing the text (internally when the mode returns prose only), then fix them in place, structure before wording.
+
+Prefer replacing or deleting words to adding them. An addition must carry a fact from the source or repair a broken sentence, never a new verdict, example, or flourish. If nothing justifies an edit and no transformation was requested, return the text unchanged and say in one line that it is clean; embedded final lint returns the unchanged prose. Do not make a token edit to show that work happened.
+
 ## Source and fact fidelity
 
 Preserve every material claim, number, date, quotation, citation, uncertainty marker, authority boundary, and established term. Do not invent examples, anecdotes, specificity, opinions, causal links, or source support. Do not strengthen a claim to improve rhythm.
 
-If the source is vague, preserve its material claim and uncertainty; remove only decoration carrying no information. Do not delete a claim because its supporting detail is absent. Quotations, code, commands, identifiers, paths, data, citations, and source titles are not stylistic targets unless the user explicitly asks.
+If the source is vague, preserve its material claim and uncertainty; remove only decoration carrying no information. Do not delete a claim because its supporting detail is absent. State a real evidence limit once, at the claim it qualifies, with its basis; remove generic advice on how to read the information and any guess about what a missing fact is (`references/patterns.md` → Evidence limits and corrective disclaimers). Quotations, code, commands, identifiers, paths, data, citations, and source titles are not stylistic targets unless the user explicitly asks.
 
 Preserve who does what, to whom, when, and under which conditions; the action's status (proposed, intended, ongoing, approved, completed); permission, obligation, negation, exceptions, and degree of certainty. Preserve comparisons, rankings, sequence, simultaneity, attribution, and the purpose of an offer or piece of evidence. Preserve the author's stance, including an existing apology or refusal. Add no promise, concession, admission, apology, gratitude, or invitation that the source does not express. Plain courteous wording may change without creating a new speech act.
 
 Keep an unnamed actor unnamed. A speaker's ability to review, explain, reduce, or reverse an action does not establish that the speaker performed it. Keep passive wording when an active paraphrase would assign responsibility by inference.
 
-Before editing consequential wording, identify its protected facts and commitments internally. After editing, compare both directions: every material source proposition survives at the same strength, and every output proposition is supported by the supplied source. Check actor, status, deadline, condition, scope, and stance explicitly. Repair drift before returning the text. A style linter cannot verify this comparison.
+Before editing consequential wording, identify its protected facts and commitments internally. After editing, compare both directions: every material source proposition survives at the same strength, and every output proposition is supported by the supplied source. Check actor, status, deadline, condition, scope, and stance explicitly. Repair drift before returning the text. When a shell is available, run `python3 -S scripts/fidelity_check.py <source> <edit>` from this skill's directory and resolve or justify every reported loss or addition. It counts numbers, currency, dates, links, code, quotations, citations, qualifiers, modal verbs, negation, first-person words, apologies, thanks, and names on both sides. It cannot see tense, aspect, a moved condition, an actor change without a pronoun, numbers swapped between objects, or a name that only opens a sentence, paragraph, list item, or heading or follows an unknown abbreviation, so a clean result does not prove fidelity; a style lint proves nothing about it.
 
 Ask a focused question only when a missing or conflicting fact prevents an accurate requested result. Otherwise preserve the uncertainty and complete the edit. When the user wants richer original writing, request the relevant example or detail rather than inventing one; do not turn routine cleanup into a mandatory interview.
 
@@ -37,7 +45,7 @@ Treat author notes as primary only when the user identifies them as the source o
 
 ## Generated text from another agent or runtime
 
-When text produced by another agent, runtime, or chat is being filed into a document or repository, treat it as an unverified draft. Trace every material claim to its original source before keeping it; drop or mark what cannot be traced. Run the deterministic lint on the result. Style cleanup does not make generated content accepted knowledge, and a clean lint does not prove fidelity.
+When text produced by another agent, runtime, or chat is being filed into a document or repository, treat it as an unverified draft. Trace every material claim to its original source before keeping it; drop or mark what cannot be traced. Run the deterministic lint on the result; a `chatbot artifact` or `placeholder text` finding means the surrounding claims were never checked against a source. Style cleanup does not make generated content accepted knowledge, and a clean lint does not prove fidelity.
 
 ## Voice
 

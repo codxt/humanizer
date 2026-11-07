@@ -6,7 +6,9 @@ Humanizer is an independently maintained editorial skill. Its design was informe
 - [phuryn/work-humanizer](https://github.com/phuryn/work-humanizer), by Pawel Huryn (MIT)
 - Wikipedia's [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) and [Russian corresponding guidance](https://ru.wikipedia.org/wiki/Википедия:Признаки_сгенерированности_текста), as references on stylistic indicators.
 
-Humanizer includes its own skill instructions, language guidance, work-fidelity checks, lint script, and tests. Source mentions are editorial references, not endorsements. This repository does not distribute the upstream repositories, source files, or Wikipedia article text.
+The 7 November 2026 review added WikiProject AI Cleanup and fifteen writing-cleanup projects as editorial references; the pinned list, with licenses, is in `references/research.md`. No code or text from them is included, so no further notices apply.
+
+Humanizer includes its own skill instructions, language guidance, work-fidelity checks, lint and fidelity-check scripts, and tests. Source mentions are editorial references, not endorsements. This repository does not distribute the upstream repositories, source files, or Wikipedia article text.
 
 The MIT notices below are preserved for transparency about the two upstream MIT projects reviewed. If any portions constitute substantial adaptations, the applicable notices remain available here.
 
