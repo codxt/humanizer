@@ -232,7 +232,7 @@ class ProseLintTests(unittest.TestCase):
     def test_inline_code_scanner_matches_reference_regex(self):
         import random
         rng = random.Random(7)
-        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "\r", "\f", "\v", "\x85", "\u2028", "b`c", "````"]
+        pieces = ["`", "``", "```", "a", " ", "\n", "\r\n", "\r", "\f", "\v", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029", "b`c", "````"]
         for _ in range(5000):
             text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 12)))
             self.assertEqual(lint._inline_code_spans(text),

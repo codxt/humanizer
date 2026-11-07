@@ -21,7 +21,8 @@ aspect ("refunding" vs "refunded"), a changed actor without a pronoun, a
 condition moved to another clause, numbers swapped between objects ("5000 to
 Alice, 3000 to Bob" and the reverse), or a changed scope; it ignores numbers
 written as words; and it does not compare a name that only opens a sentence,
-a paragraph, a list item or a heading. Russian names are matched by stem, so
+a paragraph, a list item or a heading, or that follows an abbreviation it does
+not know. Russian names are matched by stem, so
 names that differ only by an ending count as one. English "May" counts as a
 modal verb, not a month. Text inside code is compared as code only.
 
@@ -115,7 +116,7 @@ FIRST_PERSON = _lexicon({
 SPEECH_ACTS = _lexicon({
     "apology": r"sorry|apolog(?:y|ies|i[sz](?:e|es|ed|ing))|regret(?:s|ted|ting|tably|ful|fully)?"
                r"|извин\w*|прошу прощения|прости(?:те)?|сожале\w*",
-    "thanks": r"thank(?:s|ed|ing|ful)?|thankful|grateful|gratitude|appreciat(?:e|es|ed|ing)"
+    "thanks": r"thank(?:s|ed|ing|ful)?|thankful|grateful|gratitude|appreciat(?:e|es|ed|ing|ive)"
               r"|appreciation(?= (?:for|of (?:your|our|their|his|her)))"
               r"|благодар\w*|спасибо|признательн\w*",
 })
@@ -124,7 +125,7 @@ CURRENCY = [(key, re.compile(pattern)) for key, pattern in {
     "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b|(?<=\d )pounds?\b)",
     "USD": r"\$|\bUSD\b|(?i:\bdollars?\b|(?<!\w)доллар\w*)",
     "EUR": r"€|\bEUR\b|(?i:\beuros?\b|(?<!\w)евро(?!\w))",
-    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|ём|е|ей|ям|ях|ями|и)(?!\w)|(?<!\w)рубл[её]в\w*)",
+    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|ём|е|ей|ям|ях|ями|и)(?!\w)|(?<!\w)рубл[её]в(?:ый|ая|ое|ые|ого|ому|ым|ом|ой|ых|ыми|ую|ей|их)(?!\w))",
     "KZT": r"₸|\bKZT\b|(?i:\btenge\b|(?<!\w)тенге(?!\w))",
     "AED": r"\bAED\b|(?i:\bdirhams?\b|(?<!\w)дирхам\w*)",
     "CHF": r"\bCHF\b",
@@ -138,12 +139,13 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("%", r"%|percent|per cent|процент\w*"), ("‰", r"‰"), ("°C", r"°\s?C"), ("°F", r"°\s?F"),
     ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
+    ("millisecond", r"milliseconds?|ms|миллисекунд\w*|мс"), ("second", r"seconds?|secs?|секунд\w*|сек\.?"),
     ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
     ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
 ]]
 BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
-GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
+GLUED_UNITS = {"ms": "millisecond", "k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
 UNIT_AFTER = re.compile(r"([^\W\d_]{1,2}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
                         r"((?:(?:business|working|рабоч\w+)\s+)?[^\W\d_]+\.?)")
@@ -224,7 +226,8 @@ def _unit_after(prose: str, end: int) -> str:
 
 def _sign_before(prose: str, start: int) -> str:
     if start and prose[start - 1] in "-−+" and (start == 1 or prose[start - 2] in " \t\n([«\"“"):
-        if re.search(r"(?:^|[^\d\s.,])[ \t]*\d[\d.,]*[ \t]+$", prose[max(0, start - 40):start - 1]):
+        if re.search(r"(?:^|[^\d\s.,])[ \t]*\d[\d.,]*(?:[ \u00a0\u202f]\d{3})*[ \t\u00a0]+$",
+                     prose[max(0, start - 40):start - 1]):
             return ""  # "pages 10 -20" is a range; "readings 1 2 -20" keeps the sign
         return "+" if prose[start - 1] == "+" else "-"
     return ""
@@ -356,7 +359,8 @@ def _quotations(text: str) -> Counter[str]:
 def _code_body(segment: str) -> str:
     """The code itself: fence lines and inline backtick delimiters removed."""
     lines = segment.splitlines()
-    if lines and re.match(r" {0,3}(?:`{3,}|~{3,})", lines[0]):
+    opener = re.match(r" {0,3}(`{3,}|~{3,})([^\r\n]*)", lines[0]) if lines else None
+    if opener and (opener.group(1)[0] != "`" or "`" not in opener.group(2)):  # as in prose_lint
         lines = lines[1:]
         if lines and re.fullmatch(r" {0,3}(?:`{3,}|~{3,})[ \t]*", lines[-1]):
             lines = lines[:-1]

@@ -162,6 +162,27 @@ class FidelityCheckTests(unittest.TestCase):
     def test_wednesday_with_na_and_modifier(self):
         self.assertEqual(check.compare("Встреча на прошлую среду.", "Встреча в прошлую среду."), [])
 
+    def test_inline_code_with_long_delimiters(self):
+        self.assertTrue(changes("Run ```x``` now.", "Run ```y``` now."))
+        self.assertEqual(check.compare("Run ``x`` now.", "Run ```x``` now."), [])
+
+    def test_appreciative_counts_as_thanks(self):
+        self.assertEqual(check.compare("We are appreciative of your help.", "We are grateful for your help."), [])
+
+    def test_range_after_space_grouped_number(self):
+        self.assertEqual(check.compare("Pages 10 000 -20 000.", "Pages 10 000–20 000."), [])
+        self.assertIn(("lost", "number", "-20"), changes("Readings 1 2 -20 were logged.", "Readings 1 2 20 were logged."))
+
+    def test_ruble_adjective_is_not_a_place_or_surname(self):
+        self.assertEqual(check.compare("Мы говорили о Рублёвке. Рублёвка застроена.",
+                                       "Мы говорили о Рублёвке. Этот район застроен."), [])
+        self.assertEqual(check.compare("Рублёв написал икону.", "Он написал икону."), [])
+        self.assertIn(("lost", "currency", "RUB"), changes("Рублёвые активы выросли.", "Активы выросли."))
+
+    def test_seconds_and_milliseconds(self):
+        self.assertTrue(changes("Wait 10 seconds.", "Wait 10 milliseconds."))
+        self.assertEqual(check.compare("Latency is 10ms.", "Latency is 10 ms."), [])
+
     def test_inline_code_inner_space_counts(self):
         self.assertTrue(changes("Run ` make` now.", "Run `make` now."))
         self.assertEqual(check.compare("Run `` `x` `` now.", "Run `` `x` `` now."), [])
