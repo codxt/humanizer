@@ -150,7 +150,7 @@ BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
 UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
-                        r"((?:(?:business|working|рабоч\w+)\s+)?[^\W\d_]+\.?)")
+                        r"((?:(?:business|working|рабоч\w+)\s+)?(?:per\s+cent\b|[^\W\d_]+)\.?)")
 
 CONTRACTIONS = [
     (re.compile(r"\bwon['’]t\b"), "will not"), (re.compile(r"\bcan['’]t\b"), "can not"),

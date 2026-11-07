@@ -192,7 +192,9 @@ class FidelityCheckTests(unittest.TestCase):
                              ("Wait 10min.", "Wait 10 minutes."), ("Latency 10MS.", "Latency 10 MS."),
                              ("Wait 10msecs.", "Wait 10 msecs."), ("Wait 10hours.", "Wait 10 hours."),
                              ("Wait 10hr.", "Wait 10 h."), ("Wait 10day.", "Wait 10 d."),
-                             ("Срок 10час.", "Срок 10 ч."), ("Rate 10percent.", "Rate 10 %.")]:
+                             ("Срок 10час.", "Срок 10 ч."), ("Rate 10percent.", "Rate 10 %."),
+                             ("Rate 10percent.", "Rate 10 per cent."), ("Rate 10 percent.", "Rate 10 per cent."),
+                             ("We spent 5 bn.", "We spent 5 billion.")]:
             self.assertEqual(check.compare(source, edit), [], (source, edit))
         self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
         self.assertEqual(check.compare("It took 24h.", "It took 24 hours."), [])
@@ -207,6 +209,7 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertEqual(check._code("```\na\u2029```\nb\n"), {"a\u2029```\nb": 1})
         self.assertEqual(check._code("```\na\n```\nb\n"), {"a": 1})
         self.assertEqual(check._code("```\na\n```\rprose"), {"a": 1})  # a lone CR ends the closing fence
+        self.assertEqual(check._code("```\na\x0c```\nb\n"), {"a\x0c```\nb": 1})  # nor does a form feed
         self.assertEqual(check._code("Run ```a\u2028b``` now."), {"a\u2028b": 1})
 
     def test_sign_kept_after_comma_separated_numbers(self):

@@ -249,6 +249,9 @@ class ProseLintTests(unittest.TestCase):
         ranges = lint.code_ranges("```\na\u2029```\nb\n")
         self.assertEqual(ranges, [(0, len("```\na\u2029```\nb\n"))])
 
+    def test_lone_cr_ends_a_closing_fence(self):
+        self.assertEqual(lint.code_ranges("```\na\n```\rprose"), [(0, 10)])
+
     def test_form_feed_does_not_end_inline_code(self):
         self.assertEqual(self.scan("`x\fthat distinction matters`\n"), [])
 
