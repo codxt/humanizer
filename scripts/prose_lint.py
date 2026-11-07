@@ -11,7 +11,9 @@ findings (exit 1) for CI gates; choose only high-precision labels such as
 `assistant residue` and `chatbot artifact`. Matches inside a closed quotation (straight, «», “”, „“;
 it may span lines within a paragraph) or a blockquote paragraph are marked
 [quoted] and never block, so preserved quotations stay intact. An unclosed
-quotation exempts nothing, and `6"` is read as an inch mark, not a quote.
+quotation exempts nothing. `6"` never opens a quotation (it is an inch mark), but
+a straight quote after a digit can close one, so "version 2" stays a quotation and
+an inch mark inside an open quotation ends it.
 """
 
 from __future__ import annotations
@@ -237,16 +239,18 @@ def _straight_opener(text: str, i: int) -> bool:
 def _straight_closer(text: str, i: int) -> bool:
     before = text[i - 1] if i else ""
     after = text[i + 1] if i + 1 < len(text) else ""
-    if before == "\\" or not before or before.isspace() or before.isdigit():
-        return False  # after a digit it is an inch mark: `the 6" screen` closes nothing
+    if before == "\\" or not before or before.isspace():
+        return False
     return after == "" or after.isspace() or after in STRAIGHT_CLOSE_BEFORE
 
 
 def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
     """Closed quotations inside one paragraph; an unclosed quotation exempts nothing.
 
-    A straight quote opens only at a word start and closes only at a word end, and never does
-    either right after a digit (`6"` is an inch mark).
+    A straight quote opens at the start of the text or after a space or opening punctuation, and
+    closes after a non-space character when a space, the end, or punctuation follows. After a
+    digit it never opens one (`6"` is an inch mark) but can close one, so "version 2" is a
+    quotation and an inch mark inside an open quotation ends it.
     """
     ranges: list[tuple[int, int]] = []
     stack: list[tuple[str, int]] = []

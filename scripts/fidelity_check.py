@@ -155,7 +155,7 @@ GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion",
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
 # The gap between a number and a word unit is same-line whitespace or hyphens, plus at most one line
 # break whose next line does not start a blank line, list item, heading, quote or table row; symbol
-# units (%, ‰, °C) allow only one space or no-break space
+# units (%, ‰, °C, °F) allow only one space or no-break space before the symbol
 # ("10\n- Per cent growth" has no unit; "24\n-hour" and "10\nhours" do).
 UNIT_GAP = (r"(?:(?:[^\S\r\n]|-)*(?:\r\n|\r|\n)"
             r"(?![^\S\r\n]*(?:[-*+](?:[^\S\r\n]|\r|\n|$)|[>#|]|\d+[.)][^\S\r\n]|\r|\n|$))(?:[^\S\r\n]|-)*"

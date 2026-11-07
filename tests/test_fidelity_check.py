@@ -359,6 +359,9 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("lost", "quotation", "we will refund it"), found)
         self.assertIn(("added", "quotation", "we refund it"), found)
 
+    def test_quotation_ending_in_a_digit(self):
+        self.assertIn(("lost", "quotation", "Version 2"), changes('He said "Version 2" and left.', "He said Version 2 and left."))
+
     def test_quote_mark_style_is_equivalent(self):
         self.assertEqual(check.compare('Он написал: "вернём деньги".', "Он написал: «вернём деньги»."), [])
         self.assertEqual(check.compare('He said "Hello," she replied.', 'He said "Hello", she replied.'), [])

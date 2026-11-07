@@ -144,11 +144,19 @@ class ProseLintTests(unittest.TestCase):
         for text in (
             'Use a 6" display. Hope this helps. The 12" model also works.\n',
             'Use the 6" display. Hope this helps. Select "Save" to continue.\n',
-            'He said "as an AI language model, the 6" screen is fine.\n',
         ):
             with self.subTest(text=text):
                 code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
                 self.assertEqual(code, 1)
+
+    def test_quotation_ending_in_a_digit_is_closed(self):
+        text = 'The model replied "as an AI language model, I cannot confirm version 2" and stopped.\n'
+        code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+        self.assertEqual(code, 0)
+        self.assertIn("[quoted]", out)
+        code, _, _, _ = self.run_cli('He wrote "Version 2" and the reply was: Hope this helps."\n',
+                                     "--fail-on", "assistant residue")
+        self.assertEqual(code, 1)
 
     def test_unclosed_quote_does_not_exempt_residue(self):
         code, _, _, _ = self.run_cli('He wrote "Hope this helps.\n\nNext paragraph.\n', "--fail-on", "assistant residue")
