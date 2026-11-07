@@ -8,7 +8,7 @@ The script never rewrites text. Matches are review candidates, not proof of AI
 origination and not automatic replacement instructions. By default every match
 is report-only. `--fail-on LABEL` turns matches of that label into blocking
 findings (exit 1) for CI gates; choose only high-precision labels such as
-`assistant residue`. Matches inside a closed quotation (straight, «», “”, „“;
+`assistant residue` and `chatbot artifact`. Matches inside a closed quotation (straight, «», “”, „“;
 it may span lines within a paragraph) or a blockquote paragraph are marked
 [quoted] and never block, so preserved quotations stay intact. An unclosed
 quotation exempts nothing, and `6"` is read as an inch mark, not a quote.
@@ -27,6 +27,10 @@ PATTERNS = [
     ("assistant residue", re.compile(r"(?<!\w)(?:i hope this (?:helps|was helpful)|hope this helps|great question|as an ai (?:language model|assistant)|надеюсь, это (?:поможет|было полезно)|отличный вопрос|как языковая модель)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"\b(?:let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update)\b", re.I)),
     ("russian chatbot residue", re.compile(r"(?<!\w)(?:давайте разбер[её]мся|с радостью помогу)(?!\w)", re.I)),
+    ("chatbot residue", re.compile(r"(?<!\w)(?:would you like me to|let me know if you(?:(?:'|’)d| would)? like|is there anything else (?:i can|you(?:(?:'|’)d| would) like)|delete this (?:section|note) before (?:submission|submitting|publishing|publication)|here(?:(?:'|’)s| is) (?:a|the|your) (?:revised|updated|polished|rewritten|improved) (?:version|draft|text)|it(?:(?:'|’)s| is) important to (?:note|remember)|certainly!|you(?:(?:'|’)re| are) absolutely right)(?!\w)", re.I)),
+    ("russian chatbot residue", re.compile(r"(?<!\w)(?:хотите, я (?:подготовлю|сделаю|напишу|составлю)|вот (?:исправленный|обновл[её]нный|переработанный|улучшенный) (?:вариант|текст))(?!\w)", re.I)),
+    ("chatbot artifact", re.compile(r"(?:contentReference\[oaicite:\d+\](?:\{index=\d+\})?|\boaicite:\d+|\boai_citation\b|\bturn\d+(?:search|news|view|fetch|image|file)\d+\b|\[cite(?::\s*\d+(?:\s*,\s*\d+)*|_start|_end)\]|\bgrok_(?:card|render_citation_card_json)\b|【\d+(?::\d+)?†[^】\n]{0,80}】)")),
+    ("placeholder text", re.compile(r"(?:\bINSERT_[A-Z0-9_]{3,}\b|(?i:\[(?:insert|add|вставьте|укажите|добавьте)\b[^\]\n]{1,60}\]|\[(?:year|date|founder names?|company name|your name|full name|дата(?: рождения)?|год|название компании|имя и фамилия|фио)\]|\b(?:19|20)\d\d-xx-xx\b|\bxx\.xx\.(?:19|20)\d\d\b))")),
     ("abstract metaphor noun", re.compile(r"\b(?:substrate|locus|nexus|bedrock|north star|flywheel)s?\b", re.I)),
     ("significance claim", re.compile(r"\b(?:marks? a (?:major |key |pivotal )?(?:shift|turning point|milestone)|statement of intent|new era|broader trend|testament to|underscores? (?:the )?(?:importance|significance))\b", re.I)),
     ("formulaic contrast", re.compile(r"\b(?:not (?:just|only|simply)\b|not\s+[^.!?;:]{1,80}\s+but\s+[^.!?;:]{1,80}|less about\s+[^.!?;:]{1,80}\s+more about)\b", re.I)),
@@ -39,6 +43,14 @@ PATTERNS = [
     ("staged candor", re.compile(r"\b(?:let(?:'|’)s be honest|real talk|давайте начистоту|будем откровенны)\b", re.I)),
     ("possible imagined objection", re.compile(r"\b(?:i(?:'|’)m not saying|don(?:'|’)t get me wrong|one might be tempted to|это не означает, что|поймите меня правильно)\b", re.I)),
     ("possible document narration", re.compile(r"\b(?:the table below compares|this section is organi[sz]ed|в таблице ниже сравниваются|этот раздел организован)\b", re.I)),
+    ("corrective disclaimer", re.compile(r"\b(?:should (?:be )?(?:treated|read|understood|viewed|presented|regarded) as\b[^.!?\n]{1,80}\brather than|(?:does|do) not (?:by itself|in itself|itself|themselves|alone|on (?:its|their) own) establish|based on (?:the )?available (?:information|sources|data|evidence)|not (?:widely|publicly) (?:available|documented|disclosed|reported)|specific details (?:are|remain) (?:limited|scarce)|следует (?:рассматривать|воспринимать|трактовать|понимать) как\b[^.!?\n]{1,80}?, а не|сам(?:о|а|и)? по себе не (?:доказывает|подтверждает|означает|устанавливает)|на основе доступн(?:ой|ых) (?:информации|данных|источников))\b", re.I)),
+    ("procedural assurance", re.compile(r"\b(?:(?:to|and) ensure (?:the )?(?:clarity|consistency|accuracy|neutrality|compliance|readability|coherence|quality)|while (?:preserving|retaining|maintaining|keeping) (?:the )?(?:original|core|existing|overall|key) (?:meaning|intent|structure|content|tone|voice|message)|(?:improv|enhanc)(?:e|es|ed|ing) (?:the )?(?:overall )?(?:clarity|flow|readability|coherence|tone)|in (?:compliance|line|accordance) with (?:the )?(?:guidelines|standards|style guide|policies)|adheres? to (?:the )?(?:guidelines|standards|style guide|policies)|для обеспечения (?:ясности|согласованности|точности|нейтральности|единообразия)|с сохранением (?:исходного|основного|первоначального) (?:смысла|содержания|замысла)|улучшен[аоы]? (?:читаемость|ясность|структура|связность))\b", re.I)),
+]
+
+# Scanned with links visible (code still masked): these signs live inside URLs.
+URL_PATTERNS = [
+    ("chatbot artifact", re.compile(r"[?&](?:utm_source=(?:chatgpt\.com|openai|copilot\.com)|referrer=grok\.com)(?![\w-]|\.\w)", re.I)),
+    ("placeholder text", re.compile(r"\bexample\.(?:com|org)/(?:source|article|news|link)\d*\b", re.I)),
 ]
 
 BOLD_LABEL = re.compile(r"^\s*[-*+]\s+\*\*[^*]{2,80}:\*\*\s+")
@@ -47,34 +59,60 @@ STACKED_SHORT = re.compile(r"(?m)(?:^[^\n.!?]{1,45}[.!?]\s*$\n?){3,}")
 MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
-def strip_code_fences(text: str) -> str:
-    """Mask Markdown code while preserving source offsets and line numbers."""
-    def mask(value: str) -> str:
-        return "".join(char if char in "\r\n" else " " for char in value)
+INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")
+URL = re.compile(r"https?://[^\s<>]+")
 
-    lines: list[str] = []
+
+def _mask(value: str) -> str:
+    return "".join(char if char in "\r\n" else " " for char in value)
+
+
+def _mask_ranges(text: str, ranges: list[tuple[int, int]]) -> str:
+    chars = list(text)
+    for start, end in ranges:
+        chars[start:end] = _mask(text[start:end])
+    return "".join(chars)
+
+
+def code_ranges(text: str) -> list[tuple[int, int]]:
+    """Offsets of fenced code blocks (fence lines included) and inline code spans."""
+    ranges: list[tuple[int, int]] = []
     fence_char = ""
     fence_length = 0
+    block_start = 0
+    offset = 0
     for line in text.splitlines(keepends=True):
         if fence_char:
-            lines.append(mask(line))
             closing = re.fullmatch(r" {0,3}(" + re.escape(fence_char) + r"{"
                                    + str(fence_length) + r",})[ \t]*(?:\r?\n)?", line)
             if closing:
                 fence_char = ""
-            continue
-        opening = re.match(r"^ {0,3}(`{3,}|~{3,})([^\r\n]*)", line)
-        if opening and (opening.group(1)[0] != "`" or "`" not in opening.group(2)):
-            fence_char = opening.group(1)[0]
-            fence_length = len(opening.group(1))
-            lines.append(mask(line))
+                ranges.append((block_start, offset + len(line)))
         else:
-            lines.append(line)
+            opening = re.match(r"^ {0,3}(`{3,}|~{3,})([^\r\n]*)", line)
+            if opening and (opening.group(1)[0] != "`" or "`" not in opening.group(2)):
+                fence_char = opening.group(1)[0]
+                fence_length = len(opening.group(1))
+                block_start = offset
+        offset += len(line)
+    if fence_char:
+        ranges.append((block_start, len(text)))
+    fenced = _mask_ranges(text, ranges)
+    ranges.extend(match.span() for match in INLINE_CODE.finditer(fenced))
+    return sorted(ranges)
 
-    scan = "".join(lines)
-    scan = re.sub(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)",
-                  lambda match: mask(match.group(0)), scan)
-    return re.sub(r"https?://[^\s<>]+", lambda match: mask(match.group(0)), scan)
+
+def mask_code(text: str, mask_urls: bool = True) -> str:
+    """Mask Markdown code (and links, by default) while preserving offsets and line numbers."""
+    scan = _mask_ranges(text, code_ranges(text))
+    if mask_urls:
+        scan = URL.sub(lambda match: _mask(match.group(0)), scan)
+    return scan
+
+
+def strip_code_fences(text: str) -> str:
+    """Mask Markdown code and links while preserving source offsets and line numbers."""
+    return mask_code(text)
 
 
 def uniform_heading_geometry(scan: str) -> list[tuple[int, str, str]]:
@@ -212,13 +250,15 @@ def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
     text = path.read_text(encoding="utf-8")
     scan = strip_code_fences(text)
     ranges = quoted_ranges(scan)
+    url_scan = mask_code(text, mask_urls=False)
     detailed: list[tuple[int, str, str, bool]] = []
-    for label, pattern in PATTERNS:
-        for match in pattern.finditer(scan):
-            line = scan.count("\n", 0, match.start()) + 1
-            excerpt = " ".join(match.group(0).split())
-            quoted = any(start <= match.start() and match.end() <= end for start, end in ranges)
-            detailed.append((line, label, excerpt, quoted))
+    for source, patterns in ((scan, PATTERNS), (url_scan, URL_PATTERNS)):
+        for label, pattern in patterns:
+            for match in pattern.finditer(source):
+                line = source.count("\n", 0, match.start()) + 1
+                excerpt = " ".join(match.group(0).split())
+                quoted = any(start <= match.start() and match.end() <= end for start, end in ranges)
+                detailed.append((line, label, excerpt, quoted))
     detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan))
     detailed.sort(key=lambda item: (item[0], item[1], item[2]))
     return detailed
@@ -246,7 +286,7 @@ def _structural(scan: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-LABELS = frozenset(label for label, _ in PATTERNS) | {
+LABELS = frozenset(label for label, _ in PATTERNS + URL_PATTERNS) | {
     "bold-label bullet",
     "title-case heading",
     "stacked short-sentence rhythm",

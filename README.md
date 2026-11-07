@@ -46,11 +46,22 @@ python3 scripts/prose_lint.py draft.md
 python3 -m unittest discover -s tests -v
 ```
 
-For a CI gate, make only high-precision labels blocking and keep the rest as review candidates. `--fail-on LABEL` (repeatable) exits 1 when that label matches; `--github-annotations` adds GitHub Actions annotations. `assistant residue` (for example "as an AI language model", "hope this helps", "отличный вопрос") is the label meant for blocking. Text inside code spans and fences is not scanned. A match inside a closed quotation (straight, «», “”, „“, possibly across lines within a paragraph) or a blockquote paragraph is reported as `[quoted]` and never blocks, so preserved quotations stay intact. An unclosed quotation exempts nothing, and `6"` counts as an inch mark, not a quote.
+For a CI gate, make only high-precision labels blocking and keep the rest as review candidates. `--fail-on LABEL` (repeatable) exits 1 when that label matches; `--github-annotations` adds GitHub Actions annotations. Two labels are meant for blocking: `assistant residue` (for example "as an AI language model", "hope this helps", "отличный вопрос") and `chatbot artifact` (chat-interface citation markup such as `contentReference[oaicite:1]` or `turn0search0`, and AI referral parameters such as `utm_source=chatgpt.com` in links). `placeholder text`, `corrective disclaimer`, and `procedural assurance` are review candidates. Text inside code spans and fences is not scanned. A match inside a closed quotation (straight, «», “”, „“, possibly across lines within a paragraph) or a blockquote paragraph is reported as `[quoted]` and never blocks, so preserved quotations stay intact. An unclosed quotation exempts nothing, and `6"` counts as an inch mark, not a quote.
 
 ```bash
-python3 scripts/prose_lint.py --github-annotations --fail-on "assistant residue" changed.md
+python3 scripts/prose_lint.py --github-annotations --fail-on "assistant residue" --fail-on "chatbot artifact" changed.md
 ```
+
+## Mechanical fidelity check
+
+`scripts/fidelity_check.py` compares a source with its edit and lists meaning-bearing items whose count changed: numbers (`4 500`, `4,500` and `4500` count as equal), currency (`£`, `GBP` and "pounds sterling" count as equal), month and weekday names, relative dates, links and e-mail addresses, code, quotations, bracketed citations, qualifiers (`at least`, `usually`, `если`, `не позднее`), modal verbs (`may`, `must`, `можем`, `обязаны`), negation, first-person words, apologies and thanks, and names.
+
+```bash
+python3 scripts/fidelity_check.py source.md edit.md
+python3 scripts/fidelity_check.py --strict --json source.md edit.md
+```
+
+A finding asks for a sentence-level comparison; removing a stacked hedge or a formulaic "not only" changes counts on purpose. A clean result does not prove fidelity: the check cannot see tense or aspect ("refunding" vs "refunded"), an actor change without a pronoun, a condition moved to another clause, or a changed scope, and it ignores numbers written as words. Russian names inside «» are compared as quotations, so an inflected company name shows up as a changed quotation. `--strict` exits 1 on any finding; errors exit 2.
 
 The included manual regression cases in `tests/fidelity_cases.json` cover semantic edge cases in the currently supported languages. Passing a style lint or model check does not guarantee legal correctness or authenticity.
 

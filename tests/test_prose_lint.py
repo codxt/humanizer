@@ -204,6 +204,78 @@ class ProseLintTests(unittest.TestCase):
         findings = self.scan("The flywheel is the north star of this substrate.\n")
         self.assertEqual([item[1] for item in findings].count("abstract metaphor noun"), 3)
 
+    def labels(self, text):
+        return [item[1] for item in self.scan(text)]
+
+    def test_chatbot_citation_markup(self):
+        text = (
+            "Revenue grew in 2025. :contentReference[oaicite:1]{index=1}\n"
+            "It opened in 1998 turn0search3 and closed in 2004 [cite: 2, 5].\n"
+            "The mayor resigned 【4:0†source】 and grok_card followed.\n"
+        )
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 5)
+
+    def test_ai_referral_parameter_in_link(self):
+        text = (
+            "Source: https://www.theguardian.com/sport/2025/feb/11/interview?utm_source=chatgpt.com\n"
+            "Also [this](https://example.org/a?x=1&referrer=grok.com) and https://site.test/p?utm_source=openai.\n"
+        )
+        self.assertEqual(self.labels(text).count("chatbot artifact"), 3)
+
+    def test_ordinary_tracking_and_quoted_markup_are_not_artifacts(self):
+        text = (
+            "Read https://example.org/post?utm_source=newsletter&utm_medium=email.\n"
+            "The leak looks like `contentReference[oaicite:1]` or `?utm_source=chatgpt.com`.\n"
+        )
+        self.assertNotIn("chatbot artifact", self.labels(text))
+
+    def test_artifact_label_can_block(self):
+        code, out, _, _ = self.run_cli("Founded in 1990.turn0search0\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
+        self.assertIn("[blocking]", out)
+
+    def test_placeholder_text(self):
+        text = (
+            "Travomate was founded in [Year] by [Founder Names].\n"
+            "Accessed 2026-xx-xx at INSERT_SOURCE_URL_01 and https://example.com/source2.\n"
+            "Компания [Название компании] основана [Дата рождения]; [вставьте ссылку].\n"
+        )
+        self.assertEqual(self.labels(text).count("placeholder text"), 8)
+
+    def test_ordinary_brackets_are_not_placeholders(self):
+        text = "As reported [1], the fee [sic] was waived (if applicable) by the insert team.\n"
+        self.assertNotIn("placeholder text", self.labels(text))
+
+    def test_new_chatbot_residue(self):
+        text = (
+            "Would you like me to format it? Here is a revised version of the text.\n"
+            "It's important to note that delete this section before submission.\n"
+            "Хотите, я подготовлю письмо? Вот исправленный вариант.\n"
+        )
+        found = self.labels(text)
+        self.assertEqual(found.count("chatbot residue"), 4)
+        self.assertEqual(found.count("russian chatbot residue"), 2)
+
+    def test_corrective_disclaimer(self):
+        text = (
+            "The account should be treated as tradition rather than verified fact.\n"
+            "The records do not themselves establish his role, based on available information.\n"
+            "Это следует рассматривать как предание, а не как факт. Само по себе не доказывает связь.\n"
+        )
+        self.assertEqual(self.labels(text).count("corrective disclaimer"), 5)
+
+    def test_plain_evidence_limit_is_not_a_disclaimer(self):
+        text = "The 2019 extract lists him as director; no later extract was found. A refund in progress does not establish completion.\n"
+        self.assertNotIn("corrective disclaimer", self.labels(text))
+
+    def test_procedural_assurance(self):
+        text = (
+            "Revised the lead to ensure neutrality while preserving the original meaning.\n"
+            "Improved clarity and flow in line with the guidelines.\n"
+            "Текст отредактирован с сохранением исходного смысла; улучшена читаемость.\n"
+        )
+        self.assertEqual(self.labels(text).count("procedural assurance"), 6)
+
 
 if __name__ == "__main__":
     unittest.main()
