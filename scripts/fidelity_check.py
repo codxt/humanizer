@@ -141,15 +141,15 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
     ("millisecond", r"milliseconds?|(?-i:ms|msecs?)|миллисекунд\w*|мс"),
     ("second", r"seconds?|(?-i:s|sec|secs)|секунд\w*|сек\.?"),
-    ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
-    ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
-    ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
+    ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|(?-i:h|ч)|час\w*"),
+    ("day", r"days?|(?-i:d)|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|(?-i:w)|недел\w*"),
+    ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|(?-i:y)|год(?:а|у)?|лет"),
 ]]
 BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 # Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
-UNIT_AFTER = re.compile(r"([^\W\d_]{1,4}\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
+UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
                         r"((?:(?:business|working|рабоч\w+)\s+)?[^\W\d_]+\.?)")
 
 CONTRACTIONS = [

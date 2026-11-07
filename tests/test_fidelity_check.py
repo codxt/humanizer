@@ -189,17 +189,25 @@ class FidelityCheckTests(unittest.TestCase):
     def test_glued_and_spaced_units_agree(self):
         for source, edit in [("Wait 10s.", "Wait 10 s."), ("Wait 10 s.", "Wait 10sec."),
                              ("Wait 10 msec.", "Wait 10msec."), ("Wait 10 msec.", "Wait 10 msecs."),
-                             ("Wait 10min.", "Wait 10 minutes."), ("Latency 10MS.", "Latency 10 MS.")]:
+                             ("Wait 10min.", "Wait 10 minutes."), ("Latency 10MS.", "Latency 10 MS."),
+                             ("Wait 10msecs.", "Wait 10 msecs."), ("Wait 10hours.", "Wait 10 hours."),
+                             ("Wait 10hr.", "Wait 10 h."), ("Wait 10day.", "Wait 10 d."),
+                             ("Срок 10час.", "Срок 10 ч."), ("Rate 10percent.", "Rate 10 %.")]:
             self.assertEqual(check.compare(source, edit), [], (source, edit))
         self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
         self.assertEqual(check.compare("It took 24h.", "It took 24 hours."), [])
+        self.assertTrue(changes("Wait 10 ms.", "Wait 10 s."))
+        self.assertTrue(changes("It took 5m.", "It took 5 m."))  # glued m is million; spaced m is not a unit
 
     def test_closing_fence_width_is_style(self):
         self.assertEqual(check.compare("```\na\n```\nb\n", "```\na\n````\nb\n"), [])
 
     def test_code_spans_and_bodies_agree_on_line_ends(self):
-        for text in ["```\na\u2029```\nb\n", "```\na\x0c```\n", "Run ```a\u2028b``` now."]:
-            self.assertEqual(check.compare(text, text), [], repr(text))
+        # U+2029 is not a line end, so the fence stays open and the rest of the text is code.
+        self.assertEqual(check._code("```\na\u2029```\nb\n"), {"a\u2029```\nb": 1})
+        self.assertEqual(check._code("```\na\n```\nb\n"), {"a": 1})
+        self.assertEqual(check._code("```\na\n```\rprose"), {"a": 1})  # a lone CR ends the closing fence
+        self.assertEqual(check._code("Run ```a\u2028b``` now."), {"a\u2028b": 1})
 
     def test_sign_kept_after_comma_separated_numbers(self):
         self.assertIn(("lost", "number", "-20 °C"),
