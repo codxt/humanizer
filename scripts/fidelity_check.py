@@ -145,12 +145,13 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("day", r"days?|(?-i:d)|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|(?-i:w)|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|(?-i:y)|год(?:а|у)?|лет"),
 ]]
+PER_CENT = re.compile(r"per[\s\u00a0-]+cent", re.I)  # any case, spacing or hyphen: one percent sign
 BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 # Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
 UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
-                        r"((?:(?:business|working|рабоч\w+)\s+)?(?:per\s+cent\b|[^\W\d_]+)\.?)")
+                        r"((?:(?:business|working|рабоч\w+)\s+)?(?:(?i:per[\s\u00a0-]+cent)\b|[^\W\d_]+)\.?)")
 
 CONTRACTIONS = [
     (re.compile(r"\bwon['’]t\b"), "will not"), (re.compile(r"\bcan['’]t\b"), "can not"),
@@ -181,7 +182,7 @@ NOT_NAMES = {
     "the", "a", "an", "this", "that", "these", "those", "it", "its", "we", "you", "he", "she",
     "they", "our", "my", "your", "their", "his", "her", "and", "but", "or", "if", "when",
     "in", "on", "at", "for", "to", "of", "by", "with", "as", "there", "here", "then", "so",
-    "no", "not", "all", "any", "each", "every", "please",
+    "no", "not", "all", "any", "each", "every", "please", "per", "cent", "cents", "percent",
     "это", "этот", "эта", "эти", "мы", "я", "он", "она", "они", "оно", "в", "на", "по", "для",
     "с", "со", "к", "о", "об", "и", "а", "но", "или", "если", "когда", "как", "что", "при",
     "после", "до", "из", "у", "за", "не", "нет", "да", "так", "также", "однако",
@@ -220,6 +221,8 @@ def _unit_after(prose: str, end: int) -> str:
     business = BUSINESS_PREFIX.match(candidate)
     if business:  # "10 working hours" is "10 business hour", not "10 hour"
         prefix, candidate = "business ", candidate[business.end():]
+    if PER_CENT.fullmatch(candidate.rstrip(".")):
+        return prefix + "%"
     for key, pattern in UNITS:
         if pattern.fullmatch(candidate) or pattern.fullmatch(candidate.rstrip(".")):
             return prefix + key

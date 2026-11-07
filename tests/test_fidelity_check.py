@@ -194,12 +194,18 @@ class FidelityCheckTests(unittest.TestCase):
                              ("Wait 10hr.", "Wait 10 h."), ("Wait 10day.", "Wait 10 d."),
                              ("Срок 10час.", "Срок 10 ч."), ("Rate 10percent.", "Rate 10 %."),
                              ("Rate 10percent.", "Rate 10 per cent."), ("Rate 10 percent.", "Rate 10 per cent."),
-                             ("We spent 5 bn.", "We spent 5 billion.")]:
+                             ("We spent 5 bn.", "We spent 5 billion."),
+                             ("# 10 Per Cent Growth", "# 10 per cent growth"), ("Rate 10 per  cent now.", "Rate 10 per cent now."),
+                             ("Rate 10 per\u00a0cent.", "Rate 10 per cent."), ("Rate 10 per\ncent.", "Rate 10 per cent."),
+                             ("Rate 10-per-cent now.", "Rate 10 per cent now."),
+                             ("Revenue 4K.", "Revenue 4 thousand."), ("It took 10H.", "It took 10 h."),
+                             ("Rate 10 Per Cent now.", "Rate 10% now."), ("Rate 10 PER CENT now.", "Rate 10 percent now.")]:
             self.assertEqual(check.compare(source, edit), [], (source, edit))
         self.assertEqual(check.compare("Revenue was $5m.", "Revenue was 5 million USD."), [])
         self.assertEqual(check.compare("It took 24h.", "It took 24 hours."), [])
         self.assertTrue(changes("Wait 10 ms.", "Wait 10 s."))
         self.assertTrue(changes("It took 5m.", "It took 5 m."))  # glued m is million; spaced m is not a unit
+        self.assertTrue(changes("It took 10 H.", "It took 10 h."))  # spaced uppercase H is not a unit
 
     def test_closing_fence_width_is_style(self):
         self.assertEqual(check.compare("```\na\n```\nb\n", "```\na\n````\nb\n"), [])
