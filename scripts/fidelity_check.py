@@ -24,7 +24,8 @@ written as words; and it does not compare a name that only opens a sentence,
 a paragraph, a list item or a heading, or that follows an abbreviation it does
 not know. Russian names are matched by stem, so
 names that differ only by an ending count as one. English "May" counts as a
-modal verb, not a month. Text inside code is compared as code only.
+modal verb, not a month. Text inside fenced code and inline code spans is
+compared as code only; indented (four-space) code blocks are read as prose.
 
 Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 """
@@ -152,8 +153,9 @@ BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 # Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
-# The gap between a number and its unit is same-line whitespace or hyphens, plus at most one line
-# break whose next line does not start a blank line, list item, heading, quote or table row
+# The gap between a number and a word unit is same-line whitespace or hyphens, plus at most one line
+# break whose next line does not start a blank line, list item, heading, quote or table row; symbol
+# units (%, ‰, °C) allow only one space or no-break space
 # ("10\n- Per cent growth" has no unit; "24\n-hour" and "10\nhours" do).
 UNIT_GAP = (r"(?:(?:[^\S\r\n]|-)*(?:\r\n|\r|\n)"
             r"(?![^\S\r\n]*(?:[-*+](?:[^\S\r\n]|\r|\n|$)|[>#|]|\d+[.)][^\S\r\n]|\r|\n|$))(?:[^\S\r\n]|-)*"

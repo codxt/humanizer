@@ -144,6 +144,7 @@ class ProseLintTests(unittest.TestCase):
         for text in (
             'Use a 6" display. Hope this helps. The 12" model also works.\n',
             'Use the 6" display. Hope this helps. Select "Save" to continue.\n',
+            'He said "as an AI language model, the 6" screen is fine.\n',
         ):
             with self.subTest(text=text):
                 code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")

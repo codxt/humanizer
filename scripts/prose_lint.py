@@ -237,16 +237,16 @@ def _straight_opener(text: str, i: int) -> bool:
 def _straight_closer(text: str, i: int) -> bool:
     before = text[i - 1] if i else ""
     after = text[i + 1] if i + 1 < len(text) else ""
-    if before == "\\" or not before or before.isspace():
-        return False
+    if before == "\\" or not before or before.isspace() or before.isdigit():
+        return False  # after a digit it is an inch mark: `the 6" screen` closes nothing
     return after == "" or after.isspace() or after in STRAIGHT_CLOSE_BEFORE
 
 
 def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
     """Closed quotations inside one paragraph; an unclosed quotation exempts nothing.
 
-    A straight quote opens only at a word start (not after a digit, so `6"` is an inch
-    mark) and closes only at a word end.
+    A straight quote opens only at a word start and closes only at a word end, and never does
+    either right after a digit (`6"` is an inch mark).
     """
     ranges: list[tuple[int, int]] = []
     stack: list[tuple[str, int]] = []
