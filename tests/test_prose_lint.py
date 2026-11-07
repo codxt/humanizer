@@ -149,6 +149,13 @@ class ProseLintTests(unittest.TestCase):
                 code, _, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
                 self.assertEqual(code, 1)
 
+    def test_match_across_blockquote_lines_is_quoted(self):
+        code, out, _, _ = self.run_cli("> [cite:\n1] was in the pasted answer.\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 0)
+        self.assertIn("chatbot artifact [quoted]", out)
+        code, _, _, _ = self.run_cli("> Quoted line.\n\n[cite: 1] outside.\n", "--fail-on", "chatbot artifact")
+        self.assertEqual(code, 1)
+
     def test_quotation_ending_in_a_digit_is_closed(self):
         text = 'The model replied "as an AI language model, I cannot confirm version 2" and stopped.\n'
         code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")

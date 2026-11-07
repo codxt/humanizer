@@ -211,7 +211,8 @@ STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'")
 
 
 def _blockquote_ranges(scan: str) -> list[tuple[int, int]]:
-    """A `>` line and its lazy continuation lines, up to a blank line or a new block."""
+    """Each blockquote paragraph as one range: a `>` line and the lines that continue it, up to a
+    blank line or a new block, so a match that spans two of its lines is still quoted."""
     ranges: list[tuple[int, int]] = []
     offset = 0
     inside = False
@@ -223,7 +224,10 @@ def _blockquote_ranges(scan: str) -> list[tuple[int, int]]:
         elif inside and BLOCK_START.match(line):
             inside = False
         if inside:
-            ranges.append((offset, offset + len(line)))
+            if ranges and ranges[-1][1] == offset:
+                ranges[-1] = (ranges[-1][0], offset + len(line))
+            else:
+                ranges.append((offset, offset + len(line)))
         offset += len(line)
     return ranges
 

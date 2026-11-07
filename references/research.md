@@ -56,7 +56,7 @@ The linked articles and upstream projects remain on their respective websites. T
 
 - **Editorial candidates:** Identify clusters of repeated scaffolding, overclaiming, canned transitions, decorative contrast, and unnecessary narration while preserving meaningful structure and native usage. See [patterns.md](patterns.md) and [language.md](language.md).
 - **Fidelity controls:** Compare source and edit in both directions, protecting actors, commitments, status, conditionality, deadlines, attribution, uncertainty, and stance. See [work-fidelity.md](work-fidelity.md).
-- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The repository includes **122 automated tests** (49 for the linter, 73 for the fidelity check) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
+- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The repository includes **123 automated tests** (50 for the linter, 73 for the fidelity check) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
 
 ## Use and attribution
 
