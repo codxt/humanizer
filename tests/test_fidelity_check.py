@@ -227,6 +227,11 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertEqual(check.compare("- Revenue: 10\n- Per cent growth target", "- Revenue: 10\n- Growth target"), [])
         self.assertEqual(check.compare("Revenue: 10\n\n---\n\nPer cent growth.", "Revenue: 10\n\n---\n\nGrowth."), [])
         self.assertEqual(check.compare("We waited 10\nhours.", "We waited 10 hours."), [])  # a soft wrap still joins
+        self.assertEqual(check.compare("Rate 10\u2009hours.", "Rate 10 hours."), [])  # thin space
+        self.assertEqual(check.compare("Rate 10\u202fhours.", "Rate 10 hours."), [])  # narrow no-break space
+        self.assertEqual(check.compare("It took 24\n-hour.", "It took 24-hour."), [])  # wrapped hyphen, not a list
+        self.assertEqual(check.compare("Срок 10\n-рабочих дней.", "Срок 10 рабочих дней."), [])
+        self.assertIn(("lost", "name", "percent"), changes("We use Percent.", "We use it."))
 
     def test_sign_kept_after_comma_separated_numbers(self):
         self.assertIn(("lost", "number", "-20 °C"),

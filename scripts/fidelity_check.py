@@ -152,9 +152,12 @@ BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 # Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
-# The gap between a number and its unit may hold one soft line break, but not a blank line or a
-# new list item, heading, quote, table row, or rule ("10\n- Per cent growth" has no unit).
-UNIT_GAP = r"(?:[ \t\u00a0-]*(?:\r\n|\r|\n)(?![ \t]*(?:[-*+>#|]|\d+[.)][ \t]|\r|\n|$))[ \t\u00a0]*|[ \t\u00a0-]+)"
+# The gap between a number and its unit is same-line whitespace or hyphens, plus at most one line
+# break whose next line does not start a blank line, list item, heading, quote or table row
+# ("10\n- Per cent growth" has no unit; "24\n-hour" and "10\nhours" do).
+UNIT_GAP = (r"(?:(?:[^\S\r\n]|-)*(?:\r\n|\r|\n)"
+            r"(?![^\S\r\n]*(?:[-*+](?:[^\S\r\n]|\r|\n|$)|[>#|]|\d+[.)][^\S\r\n]|\r|\n|$))(?:[^\S\r\n]|-)*"
+            r"|(?:[^\S\r\n]|-)+)")
 UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|" + UNIT_GAP + r"(?:(?:calendar|full|календарных|полных)\s+)?"
                         r"((?:(?:business|working|рабоч\w+)\s+)?(?:(?i:per[\s\u00a0-]+cent)\b|[^\W\d_]+)\.?)")
 
