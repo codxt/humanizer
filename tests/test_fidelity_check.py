@@ -326,8 +326,12 @@ class FidelityCheckTests(unittest.TestCase):
 
     def test_repository_documents_compare_clean_with_themselves(self):
         root = Path(__file__).resolve().parents[1]
-        for path in [root / "README.md", root / "SKILL.md", root / "THIRD_PARTY_NOTICES.md",
-                     *sorted((root / "references").glob("*.md"))]:
+        # An installed copy of the skill may carry only SKILL.md and references/.
+        paths = [root / "README.md", root / "SKILL.md", root / "THIRD_PARTY_NOTICES.md",
+                 *sorted((root / "references").glob("*.md"))]
+        present = [path for path in paths if path.is_file()]
+        self.assertIn(root / "SKILL.md", present)
+        for path in present:
             text = path.read_text(encoding="utf-8")
             self.assertEqual(check.compare(text, text), [], path.name)
 
