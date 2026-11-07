@@ -218,6 +218,16 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertEqual(check._code("```\na\x0c```\nb\n"), {"a\x0c```\nb": 1})  # nor does a form feed
         self.assertEqual(check._code("Run ```a\u2028b``` now."), {"a\u2028b": 1})
 
+    def test_percent_words_are_names_outside_a_percent(self):
+        self.assertIn(("lost", "name", "per"), changes("We met Per Hansen.", "We met Hansen."))
+        self.assertIn(("lost", "name", "cent"), changes("We liked 50 Cent.", "We liked 50."))
+        self.assertEqual(check.compare("Rate 10 Per Cent now.", "Rate 10% now."), [])
+
+    def test_unit_does_not_cross_a_block(self):
+        self.assertEqual(check.compare("- Revenue: 10\n- Per cent growth target", "- Revenue: 10\n- Growth target"), [])
+        self.assertEqual(check.compare("Revenue: 10\n\n---\n\nPer cent growth.", "Revenue: 10\n\n---\n\nGrowth."), [])
+        self.assertEqual(check.compare("We waited 10\nhours.", "We waited 10 hours."), [])  # a soft wrap still joins
+
     def test_sign_kept_after_comma_separated_numbers(self):
         self.assertIn(("lost", "number", "-20 °C"),
                       changes("In March 2024, 500 -20 °C readings were logged.",

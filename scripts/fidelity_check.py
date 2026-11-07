@@ -146,11 +146,16 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|(?-i:y)|год(?:а|у)?|лет"),
 ]]
 PER_CENT = re.compile(r"per[\s\u00a0-]+cent", re.I)  # any case, spacing or hyphen: one percent sign
+# "10 Per Cent" is a unit, not two names; "Per Hansen" and "50 Cent" stay names.
+PERCENT_AFTER_NUMBER = re.compile(r"(?<=\d)(?:[ \t\u00a0-]*)(?:per[\s\u00a0-]+cent|percent)\b", re.I)
 BUSINESS_PREFIX = re.compile(r"(?:business|working|рабоч\w+)\s+", re.I)
 # Single letters that mean a magnitude or hours only when glued to the number ("5m", "4K", "24h").
 GLUED_UNITS = {"k": "thousand", "m": "million", "bn": "billion", "b": "billion", "h": "hour"}
 # "calendar" and "full" days are days; "business" and "working" days are a different unit.
-UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|[\s\u00a0-]+(?:(?:calendar|full|календарных|полных)\s+)?"
+# The gap between a number and its unit may hold one soft line break, but not a blank line or a
+# new list item, heading, quote, table row, or rule ("10\n- Per cent growth" has no unit).
+UNIT_GAP = r"(?:[ \t\u00a0-]*(?:\r\n|\r|\n)(?![ \t]*(?:[-*+>#|]|\d+[.)][ \t]|\r|\n|$))[ \t\u00a0]*|[ \t\u00a0-]+)"
+UNIT_AFTER = re.compile(r"([^\W\d_]+\b)|[ \u00a0]?(%|‰|°\s?[CF]\b)|" + UNIT_GAP + r"(?:(?:calendar|full|календарных|полных)\s+)?"
                         r"((?:(?:business|working|рабоч\w+)\s+)?(?:(?i:per[\s\u00a0-]+cent)\b|[^\W\d_]+)\.?)")
 
 CONTRACTIONS = [
@@ -182,7 +187,7 @@ NOT_NAMES = {
     "the", "a", "an", "this", "that", "these", "those", "it", "its", "we", "you", "he", "she",
     "they", "our", "my", "your", "their", "his", "her", "and", "but", "or", "if", "when",
     "in", "on", "at", "for", "to", "of", "by", "with", "as", "there", "here", "then", "so",
-    "no", "not", "all", "any", "each", "every", "please", "per", "cent", "cents", "percent",
+    "no", "not", "all", "any", "each", "every", "please",
     "это", "этот", "эта", "эти", "мы", "я", "он", "она", "они", "оно", "в", "на", "по", "для",
     "с", "со", "к", "о", "об", "и", "а", "но", "или", "если", "когда", "как", "что", "при",
     "после", "до", "из", "у", "за", "не", "нет", "да", "так", "также", "однако",
@@ -414,7 +419,7 @@ def profile(text: str) -> dict[str, Counter[str]]:
         "negation": _lexicon_counts(words, NEGATION),
         "first person": _lexicon_counts(_normalize_words(COUNTRY_US.sub(_blank, prose)), FIRST_PERSON),
         "speech act": _lexicon_counts(words, SPEECH_ACTS),
-        "name": Counter(_names(prose)),
+        "name": Counter(_names(PERCENT_AFTER_NUMBER.sub(_blank, prose))),
     }
 
 
