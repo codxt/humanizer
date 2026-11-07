@@ -125,7 +125,7 @@ CURRENCY = [(key, re.compile(pattern)) for key, pattern in {
     "GBP": r"£|\bGBP\b|(?i:\bpounds? sterling\b|(?<=\d )pounds?\b)",
     "USD": r"\$|\bUSD\b|(?i:\bdollars?\b|(?<!\w)доллар\w*)",
     "EUR": r"€|\bEUR\b|(?i:\beuros?\b|(?<!\w)евро(?!\w))",
-    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|ём|е|ей|ям|ях|ями|и)(?!\w)|(?<!\w)рубл[её]в(?:ый|ая|ое|ые|ого|ому|ым|ом|ой|ых|ыми|ую|ей|их)(?!\w))",
+    "RUB": r"₽|\bRU[BR]\b|(?i:\br[o]?ubles?\b|(?<!\w)руб(?:\.|(?!\w))|(?<!\w)рубл(?:ь|я|ю|ем|ём|е|ей|ям|ях|ями|и)(?!\w)|(?<!\w)рубл[её]в(?:ый|ая|ое|ые|ого|ому|ым|ом|ой|ою|ых|ыми|ую|ей|их)(?!\w)|(?<!\w)(?-i:рубл[её]в)(?!\w))",
     "KZT": r"₸|\bKZT\b|(?i:\btenge\b|(?<!\w)тенге(?!\w))",
     "AED": r"\bAED\b|(?i:\bdirhams?\b|(?<!\w)дирхам\w*)",
     "CHF": r"\bCHF\b",
@@ -139,7 +139,8 @@ UNITS = [(key, re.compile(r"(?i:" + pattern + r")")) for key, pattern in [
     ("%", r"%|percent|per cent|процент\w*"), ("‰", r"‰"), ("°C", r"°\s?C"), ("°F", r"°\s?F"),
     ("thousand", r"thousands?|тыс\.?|тысяч\w*"), ("million", r"millions?|mln|mn|млн\.?|миллион\w*"),
     ("billion", r"billions?|bn|млрд\.?|миллиард\w*"), ("trillion", r"trillions?|трлн\.?|триллион\w*"),
-    ("millisecond", r"milliseconds?|ms|миллисекунд\w*|мс"), ("second", r"seconds?|secs?|секунд\w*|сек\.?"),
+    ("millisecond", r"milliseconds?|(?-i:ms|msec)|миллисекунд\w*|мс"),
+    ("second", r"seconds?|(?-i:s|sec|secs)|секунд\w*|сек\.?"),
     ("minute", r"minutes?|mins?|минут\w*|мин\.?"), ("hour", r"hours?|hrs?|час\w*"),
     ("day", r"days?|дн(?:я|ей|и)|день|сут(?:ок|ки)"), ("week", r"weeks?|недел\w*"),
     ("month", r"months?|месяц\w*|мес\.?"), ("year", r"years?|yrs?|год(?:а|у)?|лет"),
@@ -226,7 +227,7 @@ def _unit_after(prose: str, end: int) -> str:
 
 def _sign_before(prose: str, start: int) -> str:
     if start and prose[start - 1] in "-−+" and (start == 1 or prose[start - 2] in " \t\n([«\"“"):
-        if re.search(r"(?:^|[^\d\s.,])[ \t]*\d[\d.,]*(?:[ \u00a0\u202f]\d{3})*[ \t\u00a0]+$",
+        if re.search(r"(?:^|[^\d\s.,])[ \t]*(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d[\d.,]*)[ \t\u00a0]+$",
                      prose[max(0, start - 40):start - 1]):
             return ""  # "pages 10 -20" is a range; "readings 1 2 -20" keeps the sign
         return "+" if prose[start - 1] == "+" else "-"
@@ -358,7 +359,9 @@ def _quotations(text: str) -> Counter[str]:
 
 def _code_body(segment: str) -> str:
     """The code itself: fence lines and inline backtick delimiters removed."""
-    lines = segment.splitlines()
+    lines = re.split(r"\r\n|\r|\n", segment)
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
     opener = re.match(r" {0,3}(`{3,}|~{3,})([^\r\n]*)", lines[0]) if lines else None
     if opener and (opener.group(1)[0] != "`" or "`" not in opener.group(2)):  # as in prose_lint
         lines = lines[1:]

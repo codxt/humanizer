@@ -182,6 +182,21 @@ class FidelityCheckTests(unittest.TestCase):
     def test_seconds_and_milliseconds(self):
         self.assertTrue(changes("Wait 10 seconds.", "Wait 10 milliseconds."))
         self.assertEqual(check.compare("Latency is 10ms.", "Latency is 10 ms."), [])
+        self.assertEqual(check.compare("Latency is 10 ms.", "Latency is 10 msec."), [])
+        self.assertEqual(check.compare("Wait 10 sec.", "Wait 10 s."), [])
+        self.assertEqual(check.compare("2 MS patients were enrolled.", "2 patients with MS were enrolled."), [])
+
+    def test_sign_kept_after_comma_separated_numbers(self):
+        self.assertIn(("lost", "number", "-20 °C"),
+                      changes("In March 2024, 500 -20 °C readings were logged.",
+                              "In March 2024, 500 20 °C readings were logged."))
+
+    def test_colloquial_ruble_genitive(self):
+        self.assertEqual(check.compare("Он заплатил 100 рублёв.", "Он заплатил 100 рублей."), [])
+        self.assertIn(("lost", "currency", "RUB"), changes("Рублёвою монетой заплатили.", "Монетой заплатили."))
+
+    def test_code_body_ignores_other_line_separators(self):
+        self.assertTrue(changes("Run ```a\u2029b``` now.", "Run ```x\u2029b``` now."))
 
     def test_inline_code_inner_space_counts(self):
         self.assertTrue(changes("Run ` make` now.", "Run `make` now."))
