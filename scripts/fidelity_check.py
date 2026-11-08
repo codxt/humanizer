@@ -343,7 +343,7 @@ def _mentions(prose: str, key: str) -> bool:
 
 def _quotations(text: str) -> Counter[str]:
     """Blockquotes (consecutive lines joined) and inline quotations not inside them."""
-    scan = _lint.mask_code(text, mask_urls=False)
+    scan = _lint.quote_scan(text)
     blocks: list[list[int]] = []
     for start, end in _lint._blockquote_ranges(scan):
         if blocks and start <= blocks[-1][1]:

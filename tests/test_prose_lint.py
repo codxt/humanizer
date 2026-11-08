@@ -200,6 +200,92 @@ class ProseLintTests(unittest.TestCase):
         code, _, _, _ = self.run_cli('Type \\"x and Hope this helps \\" end.\n', "--fail-on", "assistant residue")
         self.assertEqual(code, 1)
 
+    def gate(self, text):
+        return self.run_cli(text, "--fail-on", "assistant residue")[0]
+
+    def test_blockquote_ends_where_markdown_ends_it(self):
+        for text in (
+            "> A preserved quotation.\n---\nHope this helps.\n",
+            "> # Heading\nHope this helps.\n",
+            "> Quote.\n***\nНадеюсь, это поможет.\n",
+            "> Quote.\n___\nHope this helps.\n",
+            "> Quote.\n - - -\nHope this helps.\n",
+            "> Quote.\n   ***\nHope this helps.\n",
+            "> Quote.\n> ---\nHope this helps.\n",
+            "> Quote.\n> ===\nHope this helps.\n",
+            "> Quote.\n>\nHope this helps.\n",
+            "> \nHope this helps.\n",
+            "> > # Heading\nHope this helps.\n",
+            "> ```\n> code\n> ```\nHope this helps.\n",
+            "> ```\n> code\nHope this helps.\n",
+            ">     indented code\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+
+    def test_blockquote_lazy_continuation_stays_quoted(self):
+        for text in (
+            "> A quotation\nHope this helps.\n",
+            "> A quotation\n    Hope this helps.\n",
+            "> A quotation\n===\nHope this helps.\n",
+            "> - item\nHope this helps.\n",
+            "> # Heading\n> Hope this helps.\n",
+            "> Quote.\n>\n> Hope this helps.\n",
+            "> > Nested\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 0, out)
+                self.assertIn("[quoted]", out)
+
+    def test_straight_quotation_with_emphasis_or_code_at_the_edge_is_quoted(self):
+        for text in (
+            'He wrote **"Hope this helps."**\n',
+            'He wrote *"Hope this helps."*\n',
+            'He wrote _"Hope this helps."_\n',
+            'He wrote "`save` Hope this helps."\n',
+            'He wrote "Hope this helps. Use `save`".\n',
+        ):
+            with self.subTest(text=text):
+                code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 0, out)
+                self.assertIn("[quoted]", out)
+
+    def test_emphasis_and_code_edges_do_not_widen_the_exemption(self):
+        for text in (
+            'A 12" pipe. Hope this helps.\n',
+            'He wrote "fine." Hope this helps.\n',
+            'He wrote **"fine."** Hope this helps.\n',
+            'He wrote "`save`" Hope this helps.\n',
+            'He wrote **"Hope this helps.\n',
+            'He wrote "Hope this helps. Use `save`.\n',
+            'He wrote snake_"Hope this helps."\n',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+
+    def test_paragraph_split_matches_the_reference_regex(self):
+        import random
+        import re
+        reference = re.compile(r"(?:[^\n]*\S[^\n]*(?:\n|$))+")
+        rng = random.Random(11)
+        pieces = ["a", " ", "\n", "\r\n", "\r", "\t", "\f", "\u2028", "\x85", "\n\n", "  "]
+        for _ in range(3000):
+            text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
+            self.assertEqual(list(lint._paragraphs(text)),
+                             [(m.start(), m.group(0)) for m in reference.finditer(text)], repr(text))
+
+    def test_degenerate_lines_lint_in_linear_time(self):
+        import time
+        for text in (" " * 50000 + "\n", " " * 50000, "*_\"" * 17000 + "\n", '"' * 50000 + "\n",
+                     ">" * 50000 + "\n", "> " * 25000 + "\n", "*" * 50000 + "\n", "_" * 50000 + "\n",
+                     '"*' * 25000 + "\n", "\n".join(" " * 100 for _ in range(500)),
+                     'He said "Hope this helps." ' * 10000 + "\n", "> Hope this helps.\n" * 10000):
+            with self.subTest(length=len(text)):
+                start = time.monotonic()
+                self.scan(text)
+                self.assertLess(time.monotonic() - start, 2)
+
     def test_legitimate_prose_passes_strong_label(self):
         text = (
             "Уважаемый Иван! С радостью помогу подготовить документы к заседанию.\n"
