@@ -19,7 +19,7 @@ class ProseLintTests(unittest.TestCase):
     def scan(self, text):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.md"
-            path.write_text(text, encoding="utf-8")
+            path.write_bytes(text.encode("utf-8"))
             before = path.read_bytes()
             findings = lint.lint(path)
             self.assertEqual(before, path.read_bytes())
@@ -82,7 +82,7 @@ class ProseLintTests(unittest.TestCase):
     def run_cli(self, text, *options):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.md"
-            path.write_text(text, encoding="utf-8")
+            path.write_bytes(text.encode("utf-8"))
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
                 code = lint.main(["prose_lint.py", *options, str(path)])
@@ -228,7 +228,6 @@ class ProseLintTests(unittest.TestCase):
             "> A quotation\nHope this helps.\n",
             "> A quotation\n    Hope this helps.\n",
             "> A quotation\n===\nHope this helps.\n",
-            "> - item\nHope this helps.\n",
             "> # Heading\n> Hope this helps.\n",
             "> Quote.\n>\n> Hope this helps.\n",
             "> > Nested\nHope this helps.\n",
@@ -286,31 +285,84 @@ class ProseLintTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.gate(text), 1)
 
-    def test_quoted_list_item_without_open_paragraph_is_not_lazily_continued(self):
+    def test_nested_container_in_a_blockquote_ends_lazy_quoting(self):
+        # a list item, HTML block or link reference definition anywhere in the quote: the gate
+        # blocks an unmarked line after it (CommonMark would sometimes still quote it)
         for text in (
             "> - # Heading\nHope this helps.\n",
             "> -\nHope this helps.\n",
             "> - ***\nHope this helps.\n",
             "> - ```\n> code\nHope this helps.\n",
+            "> - ```\n> code\n> ```\n> text\nHope this helps.\n",
+            "> - ```\n>   code\nHope this helps.\n",
+            "> -     code\nHope this helps.\n",
+            "> - > # H\nHope this helps.\n",
+            "> - >\nHope this helps.\n",
+            "> - [foo]: /url\nHope this helps.\n",
             "> 1. # Heading\nHope this helps.\n",
             "> 1) ---\nHope this helps.\n",
-            "> - - # Heading\nHope this helps.\n",
+            "> - item\nHope this helps.\n",
+            "> 1. item\nHope this helps.\n",
+            "> - - item\nHope this helps.\n",
+            "> + item\nHope this helps.\n",
+            "> Intro\n> - item\nHope this helps.\n",
+            "> - item\n> More text\nHope this helps.\n",
+            ">> - item\nHope this helps.\n",
+            "> <div>\nHope this helps.\n",
+            "> </div>\nHope this helps.\n",
+            "> <!-- c -->\nHope this helps.\n",
+            "> <?php\nHope this helps.\n",
+            "> [foo]: /url\nHope this helps.\n",
             "> * * *\nHope this helps.\n",
         ):
             with self.subTest(text=text):
                 self.assertEqual(self.gate(text), 1)
+
+    def test_html_block_ends_a_quote_and_swallows_quote_markers(self):
         for text in (
-            "> - item\nHope this helps.\n",
-            "> 1. item\nHope this helps.\n",
-            "> - - item\nHope this helps.\n",
+            "> text\n<div>\nHope this helps.\n",
+            "> text\n<!-- c -->\nHope this helps.\n",
+            "> text\n</div>\nHope this helps.\n",
+            "> text\n<span>x</span>\nHope this helps.\n",  # CommonMark quotes this; the gate blocks
+            "<div>\n> Quote text\nHope this helps.\n",
+            "<div>1. x\n>> Quote text\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        code, out, _, _ = self.run_cli("<div>\n\n> Quote text\nHope this helps.\n", "--fail-on", "assistant residue")
+        self.assertEqual(code, 0, out)  # a blank line ends the HTML block, so the quote is real
+        self.assertIn("[quoted]", out)
+
+    def test_blockquote_lazy_controls_stay_quoted(self):
+        for text in (
+            "> A quotation\nHope this helps.\n",
+            ">> deep quote\nHope this helps.\n",
+            "> A quotation\n===\nHope this helps.\n",
+            "> # Title\n> Quote text\nHope this helps.\n",
             "> 1.5 million\nHope this helps.\n",
-            "> - ```\n> code\n> ```\n> text\nHope this helps.\n",  # a paragraph opens after the fence
+            "> -5 degrees\nHope this helps.\n",
+            "> *emphasis* and text\nHope this helps.\n",
+            "> a <b>bold</b> word\nHope this helps.\n",
+            "> ```\n> - not a list\n> ```\n> text\nHope this helps.\n",  # list-like text inside a quote-level fence
         ):
             with self.subTest(text=text):
                 code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
                 self.assertEqual(code, 0, out)
                 self.assertIn("[quoted]", out)
-        self.assertEqual(self.gate("> - ```\n> code\n> ```\nHope this helps.\n"), 1)
+
+    def test_container_flag_does_not_leak_into_the_next_blockquote(self):
+        self.assertEqual(self.gate("> - item\n\n> A quotation\nHope this helps.\n"), 0)
+
+    def test_nul_in_input_is_not_a_code_boundary(self):
+        for text in (
+            b'A 12\x00"pipe is fine. Hope this helps. The 6" model.\n',
+            b'A \x00"pipe is fine. Hope this helps. The 6" model.\n',
+        ):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "sample.md"
+                path.write_bytes(text)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(lint.main(["prose_lint.py", "--fail-on", "assistant residue", str(path)]), 1)
 
     def test_quote_ends_with_crlf_and_cr_line_endings(self):
         for ending in ("\r\n", "\r"):
@@ -318,13 +370,35 @@ class ProseLintTests(unittest.TestCase):
                 "> Quote.{0}---{0}Hope this helps.{0}",
                 "> Quote.{0}***{0}Hope this helps.{0}",
                 "> # Heading{0}Hope this helps.{0}",
-                "> - # Heading{0}Hope this helps.{0}",
+                "> - item{0}Hope this helps.{0}",
+                "> <div>{0}Hope this helps.{0}",
             ):
                 text = text.format(ending)
                 with self.subTest(text=text):
                     self.assertEqual(self.gate(text), 1)
             with self.subTest(ending=ending):
                 self.assertEqual(self.gate("> A quotation{0}Hope this helps.{0}".format(ending)), 0)
+
+    def test_blockquote_ranges_on_raw_cr_and_crlf_text(self):
+        for ending in ("\r", "\r\n"):
+            quote, rest = "> Quote." + ending, "---" + ending + "Hope this helps." + ending
+            self.assertEqual(lint._blockquote_ranges(quote + rest), [(0, len(quote))])
+            self.assertEqual(lint.quoted_ranges(quote + rest), [(0, len(quote))])
+            lazy = "> Quote." + ending + "Hope this helps." + ending
+            self.assertEqual(lint._blockquote_ranges(lazy), [(0, len(lazy))])
+            heading = "> # H" + ending + "Hope this helps." + ending
+            self.assertEqual(lint._blockquote_ranges(heading), [(0, len("> # H" + ending))])
+            listed = "> - a" + ending + "Hope this helps." + ending
+            self.assertEqual(lint._blockquote_ranges(listed), [(0, len("> - a" + ending))])
+
+    def test_stacked_short_lines_are_numbered_by_bisect(self):
+        filler = "A separating sentence that is clearly longer than forty-five characters.\n"
+        text = "Plain line without a stop\n" * 2000 + "".join(
+            f"Short {i}.\nTiny {i}.\nBrief {i}.\n{filler}" for i in range(50))
+        found = [item[0] for item in self.scan(text) if item[1] == "stacked short-sentence rhythm"]
+        self.assertEqual(len(found), 50)
+        expected = [text[:m.start()].count("\n") + 1 for m in lint.STACKED_SHORT.finditer(lint.strip_code_fences(text))]
+        self.assertEqual(found, expected)
 
     def test_line_numbers_count_every_line_ending(self):
         residue = lambda text: [item for item in self.scan(text) if item[1] == "assistant residue"]

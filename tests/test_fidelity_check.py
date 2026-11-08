@@ -386,6 +386,15 @@ class FidelityCheckTests(unittest.TestCase):
         edit = "> We will refund the full amount.\n\nThanks.\n"
         self.assertEqual(check.compare(source, edit), [])
 
+    def test_blockquote_path_of_quotation_check(self):
+        self.assertIn(("lost", "quotation", "We will refund it"),
+                      changes("> We will refund it.\n\nThanks.\n", "Thanks.\n"))
+        # text after a thematic break is outside the blockquote, so rewriting it is not a quotation change
+        self.assertFalse([item for item in changes("> Old promise.\n---\nSee you soon.\n", "> Old promise.\n---\nBye.\n")
+                          if item[1] == "quotation"])
+        self.assertIn(("lost", "quotation", "Old promise"),
+                      changes("> Old promise.\n---\nSee you soon.\n", "---\nSee you soon.\n"))
+
     def test_link_and_code_and_citation(self):
         source = "See https://example.org/terms and run `make test` [3]."
         edit = "See https://example.org/terms-v2 and run `make check` [4]."
