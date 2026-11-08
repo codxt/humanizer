@@ -411,6 +411,27 @@ class FidelityCheckTests(unittest.TestCase):
                     dst.write_text(edit, encoding="utf-8")
                     self.assertEqual(check.main(["fidelity_check.py", "--strict", str(src), str(dst)]), 1)
 
+    def test_inline_quotation_preserves_list_lines(self):
+        source = 'The plan said: "we need\n- more time\n- more budget"\n'
+        for ending in ("\n", "\r\n"):
+            text = source.replace("\n", ending)
+            with self.subTest(ending=ending):
+                found = changes(text, text.replace("more time", "less time"))
+                self.assertIn(("lost", "quotation", "we need - more time - more budget"), found)
+                self.assertIn(("added", "quotation", "we need - less time - more budget"), found)
+
+    def test_inline_quotation_preserves_numeric_ending_after_sentence_stop(self):
+        source = 'The agent wrote: "The refund is processed weekly. Step 2"\n'
+        found = changes(source, source.replace("weekly", "monthly"))
+        self.assertIn(("lost", "quotation", "The refund is processed weekly. Step 2"), found)
+        self.assertIn(("added", "quotation", "The refund is processed monthly. Step 2"), found)
+
+    def test_inline_quotation_preserves_raw_crlf_block_boundaries(self):
+        source = 'He said "first\r\n***\r\nold text\r\nend"\r\n'
+        found = changes(source, source.replace("old text", "new text"))
+        self.assertIn(("lost", "quotation", "first *** old text end"), found)
+        self.assertIn(("added", "quotation", "first *** new text end"), found)
+
     def test_link_and_code_and_citation(self):
         source = "See https://example.org/terms and run `make test` [3]."
         edit = "See https://example.org/terms-v2 and run `make check` [4]."

@@ -214,6 +214,54 @@ class ProseLintTests(unittest.TestCase):
                 self.assertEqual(self.gate(text), 1)
         self.assertTrue(lint.quoted_ranges(lint.quote_scan('"version 2"')))
 
+    def test_fidelity_permissiveness_does_not_relax_the_gate(self):
+        for text in (
+            'The plan said: "we need\n- more time\n- more budget"\n',
+            'The agent wrote: "The refund is processed weekly. Step 2"\n',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(lint.quoted_ranges(lint.quote_scan(text)), [])
+        for text in (
+            'The plan said: "we need\n- Hope this helps.\n- more budget"\n',
+            'The agent wrote: "Hope this helps. Step 2"\n',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+
+    def test_ellipsis_before_inches_discards_stray_quotation(self):
+        for text in (
+            'He wrote *"Hope this helps… The 12" screen.\n',
+            'Он написал *"Надеюсь, это поможет… Экран 12".\n',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        self.assertEqual(self.gate('He wrote *"Hope this helps…"*\n'), 0)
+        self.assertEqual(self.gate('Он написал *"Надеюсь, это поможет…"*\n'), 0)
+
+    def test_quoted_html_continuations_are_not_paragraphs(self):
+        for opening, closing in (
+            ("<script>", "</script>"), ("<pre>", "</pre>"),
+            ("<STYLE>", "</STYLE>"), ("<textarea>", "</textarea>"),
+            ("<!--", "-->"), ("<?php", "?>"),
+            ("<!DOCTYPE", ">"), ("<![CDATA[", "]]>"),
+        ):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.gate(f"> {opening}\n> Hope this helps.\n"), 1)
+                self.assertEqual(self.gate(f"> {opening}\n>\n> Hope this helps.\n"), 1)
+                self.assertEqual(self.gate(f"> {opening}\n> {closing}\n> Hope this helps.\n"), 0)
+                self.assertEqual(self.gate(f"> {opening}\n\n> Hope this helps.\n"), 0)
+        self.assertEqual(self.gate("> <div>\n> Hope this helps.\n"), 1)
+        self.assertEqual(self.gate("> <div>\n>\n> Hope this helps.\n"), 0)
+        self.assertEqual(self.gate("> ```\n> <script>\n> ```\n> Hope this helps.\n"), 0)
+        self.assertEqual(self.gate("> <script>\n> </script>\n> text\nHope this helps.\n"), 1)
+        self.assertEqual(self.gate(">> <script>\n> Hope this helps.\n"), 0)
+
+    def test_direct_raw_crlf_quotation_boundaries(self):
+        for boundary in ("***", "___", "---", "==="):
+            text = f'He said "first\r\n{boundary}\r\nHope this helps.\r\nend"\r\n'
+            with self.subTest(boundary=boundary):
+                self.assertEqual(lint.quoted_ranges(text), [])
+
     def test_tabs_at_blockquote_and_list_boundaries(self):
         for text in (
             "> Quote.\n-\titem\nHope this helps.\n",

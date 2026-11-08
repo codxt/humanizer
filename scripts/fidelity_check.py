@@ -26,7 +26,11 @@ not know. Russian names are matched by stem, so
 names that differ only by an ending count as one. English "May" counts as a
 modal verb, not a month. Text inside fenced code and inline code spans is
 compared as code only; indented (four-space) code blocks are read as prose, and
-a fence inside a blockquote is compared as part of the quotation.
+a fence inside a blockquote is compared as part of the quotation. Quotation
+detection is permissive: keep blockquote continuations after containers, inline
+quotations across block starts within nonblank runs, and numeric endings after
+sentence stops. The gate uses strict detection; this CLI's --strict controls
+only the findings exit code.
 
 Exit codes: 0 report, 1 findings with --strict, 2 usage or read error.
 """
@@ -344,8 +348,9 @@ def _mentions(prose: str, key: str) -> bool:
 def _quotations(text: str) -> Counter[str]:
     """Blockquotes with inclusive unmarked continuations, and inline quotations outside them.
 
-    Unlike the gate, preservation keeps lazy lines after quoted containers; it can include more
-    than CommonMark quotes, so a conservative blocking decision cannot silently hide an edit.
+    Unlike the strict gate, permissive preservation keeps lazy lines after quoted containers,
+    inline quotations across block starts and numeric endings after sentence stops. It can
+    include more than CommonMark quotes so a blocking decision cannot silently hide an edit.
     """
     scan = _lint.quote_scan(text)
     blocks: list[list[int]] = []
@@ -357,7 +362,7 @@ def _quotations(text: str) -> Counter[str]:
     block_starts = [start for start, _ in blocks]
     inline: list[tuple[int, int]] = []
     reach = -1
-    for start, end in sorted(set(_lint.quoted_ranges(scan)), key=lambda item: (item[0], -item[1])):
+    for start, end in sorted(set(_lint.quoted_ranges(scan, strict=False)), key=lambda item: (item[0], -item[1])):
         block = bisect.bisect_right(block_starts, start) - 1
         if block >= 0 and end <= blocks[block][1]:
             continue  # inside a blockquote, which is compared as a whole
