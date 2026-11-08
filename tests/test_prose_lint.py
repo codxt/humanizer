@@ -203,6 +203,64 @@ class ProseLintTests(unittest.TestCase):
     def gate(self, text):
         return self.run_cli(text, "--fail-on", "assistant residue")[0]
 
+    def test_stray_formatted_opener_does_not_pair_with_later_inches(self):
+        for text in (
+            'He wrote "`save` Hope this helps. The 12" screen.\n',
+            'He wrote *"Hope this helps. The 12" screen.\n',
+            'He wrote "Hope this helps! The 12" screen.\n',
+            'He wrote "Hope this helps? The 12" screen.\n',
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        self.assertTrue(lint.quoted_ranges(lint.quote_scan('"version 2"')))
+
+    def test_tabs_at_blockquote_and_list_boundaries(self):
+        for text in (
+            "> Quote.\n-\titem\nHope this helps.\n",
+            "> Quote.\n1.\titem\nHope this helps.\n",
+            ">   \tcode\nHope this helps.\n",
+            "> Intro\n>\t# H\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        for text in (
+            ">\tQuote.\nHope this helps.\n",
+            "> Intro\n>\tcontinued\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 0)
+
+    def test_html_types_one_to_five_survive_blank_lines_until_their_end(self):
+        for opening, closing in (
+            ("<script>", "</script>"), ("<pre>", "</pre>"),
+            ("<STYLE>", "</STYLE>"), ("<textarea>", "</textarea>"),
+            ("<!--", "-->"), ("<?php", "?>"),
+            ("<!DOCTYPE", ">"), ("<![CDATA[", "]]>"),
+        ):
+            with self.subTest(opening=opening):
+                self.assertEqual(self.gate(opening + "\n\n> Owner: Quote.\nHope this helps.\n"), 1)
+                self.assertEqual(self.gate(opening + "\n\n" + closing + "\n> Quote.\nHope this helps.\n"), 0)
+                self.assertEqual(self.gate(opening + closing + "\n> Quote.\nHope this helps.\n"), 0)
+
+    def test_inline_quotation_does_not_cross_a_block_start(self):
+        for block in ("# Hope this helps.", "- Hope this helps.", "1. Hope this helps.",
+                      "-\tHope this helps.", "---\nHope this helps.", "===\nHope this helps.",
+                      "> Quote.\n---\nHope this helps.", "~~~\ncode\n~~~\nHope this helps."):
+            for opening, closing in (('"', '"'), ("«", "»"), ("“", "”"), ("„", "“")):
+                text = "He wrote " + opening + "see\n" + block + "\nend" + closing + "\n"
+                with self.subTest(text=text):
+                    self.assertEqual(self.gate(text), 1)
+        self.assertEqual(self.gate('He said "first\nHope this helps.\nend" ok'), 0)
+
+    def test_structural_line_numbers_use_only_newlines(self):
+        for separator in ("\f", "\x85", "\u2028", "\u2029"):
+            with self.subTest(separator=separator):
+                self.assertIn((2, "bold-label bullet", "- **Label:** text"),
+                              self.scan("A" + separator + "B\n- **Label:** text\n"))
+                geometry = "".join(f"## Section {i}\n### First\n### Second\n" for i in range(6))
+                self.assertEqual([item[0] for item in self.scan("A" + separator + "B\n" + geometry)
+                                  if item[1] == "uniform heading geometry"], [2])
+
     def test_blockquote_ends_where_markdown_ends_it(self):
         for text in (
             "> A preserved quotation.\n---\nHope this helps.\n",

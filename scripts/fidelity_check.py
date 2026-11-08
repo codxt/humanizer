@@ -342,10 +342,14 @@ def _mentions(prose: str, key: str) -> bool:
 
 
 def _quotations(text: str) -> Counter[str]:
-    """Blockquotes (consecutive lines joined) and inline quotations not inside them."""
+    """Blockquotes with inclusive unmarked continuations, and inline quotations outside them.
+
+    Unlike the gate, preservation keeps lazy lines after quoted containers; it can include more
+    than CommonMark quotes, so a conservative blocking decision cannot silently hide an edit.
+    """
     scan = _lint.quote_scan(text)
     blocks: list[list[int]] = []
-    for start, end in _lint._blockquote_ranges(scan):
+    for start, end in _lint._blockquote_ranges(scan, inclusive=True):
         if blocks and start <= blocks[-1][1]:
             blocks[-1][1] = max(blocks[-1][1], end)
         else:
