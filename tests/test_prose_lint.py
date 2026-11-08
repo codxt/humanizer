@@ -264,6 +264,87 @@ class ProseLintTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.gate(text), 1)
 
+    def test_code_outside_a_quotation_is_a_boundary(self):
+        for text in (
+            'He wrote "Hope this helps."`x`\n',
+            'He wrote `x`"Hope this helps."\n',
+            'He wrote `x`"Hope this helps."`y`\n',
+            'He wrote "`x`"Hope this helps."\n',
+        ):
+            with self.subTest(text=text):
+                code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 0, out)
+                self.assertIn("[quoted]", out)
+        for text in (
+            'A 12" pipe. Hope this helps.\n',
+            'A 12`x`" pipe. Hope this helps.\n',
+            'A 12`x`"pipe. Hope this helps.\n',
+            'He wrote "fine."`x` Hope this helps.\n',
+            'He wrote `x`"fine." Hope this helps.\n',
+            'He wrote "Hope this helps."**Bold** end.\n',  # known: emphasis followed by a word is no boundary
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+
+    def test_quoted_list_item_without_open_paragraph_is_not_lazily_continued(self):
+        for text in (
+            "> - # Heading\nHope this helps.\n",
+            "> -\nHope this helps.\n",
+            "> - ***\nHope this helps.\n",
+            "> - ```\n> code\nHope this helps.\n",
+            "> 1. # Heading\nHope this helps.\n",
+            "> 1) ---\nHope this helps.\n",
+            "> - - # Heading\nHope this helps.\n",
+            "> * * *\nHope this helps.\n",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        for text in (
+            "> - item\nHope this helps.\n",
+            "> 1. item\nHope this helps.\n",
+            "> - - item\nHope this helps.\n",
+            "> 1.5 million\nHope this helps.\n",
+            "> - ```\n> code\n> ```\n> text\nHope this helps.\n",  # a paragraph opens after the fence
+        ):
+            with self.subTest(text=text):
+                code, out, _, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 0, out)
+                self.assertIn("[quoted]", out)
+        self.assertEqual(self.gate("> - ```\n> code\n> ```\nHope this helps.\n"), 1)
+
+    def test_quote_ends_with_crlf_and_cr_line_endings(self):
+        for ending in ("\r\n", "\r"):
+            for text in (
+                "> Quote.{0}---{0}Hope this helps.{0}",
+                "> Quote.{0}***{0}Hope this helps.{0}",
+                "> # Heading{0}Hope this helps.{0}",
+                "> - # Heading{0}Hope this helps.{0}",
+            ):
+                text = text.format(ending)
+                with self.subTest(text=text):
+                    self.assertEqual(self.gate(text), 1)
+            with self.subTest(ending=ending):
+                self.assertEqual(self.gate("> A quotation{0}Hope this helps.{0}".format(ending)), 0)
+
+    def test_line_numbers_count_every_line_ending(self):
+        residue = lambda text: [item for item in self.scan(text) if item[1] == "assistant residue"]
+        self.assertEqual(residue("One.\r\nTwo.\n\n\nHope this helps.\n"), [(5, "assistant residue", "Hope this helps")])
+        self.assertEqual(residue("One.\rHope this helps.\r"), [(2, "assistant residue", "Hope this helps")])  # read_text turns CR into "\\n"
+
+    def test_range_lookup_matches_brute_force(self):
+        import random
+        rng = random.Random(23)
+        for _ in range(300):
+            ranges = []
+            for _ in range(rng.randint(0, 12)):
+                start = rng.randint(0, 40)
+                ranges.append((start, start + rng.randint(1, 15)))
+            contains = lint._range_lookup(ranges)
+            for start in range(0, 50):
+                for end in range(start, start + 8):
+                    self.assertEqual(contains(start, end),
+                                     any(a <= start and end <= b for a, b in ranges), (ranges, start, end))
+
     def test_paragraph_split_matches_the_reference_regex(self):
         import random
         import re
@@ -280,7 +361,8 @@ class ProseLintTests(unittest.TestCase):
         for text in (" " * 50000 + "\n", " " * 50000, "*_\"" * 17000 + "\n", '"' * 50000 + "\n",
                      ">" * 50000 + "\n", "> " * 25000 + "\n", "*" * 50000 + "\n", "_" * 50000 + "\n",
                      '"*' * 25000 + "\n", "\n".join(" " * 100 for _ in range(500)),
-                     'He said "Hope this helps." ' * 10000 + "\n", "> Hope this helps.\n" * 10000):
+                     'He said "Hope this helps." ' * 10000 + "\n", "> Hope this helps.\n" * 10000,
+                     "- 1. " * 10000 + "x\n", "> - 1. " * 10000 + "x\n", "1. " * 20000 + "\n", "`" * 50000 + "\n"):
             with self.subTest(length=len(text)):
                 start = time.monotonic()
                 self.scan(text)

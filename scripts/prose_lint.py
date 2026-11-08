@@ -13,11 +13,13 @@ it may span lines within a paragraph) or a blockquote paragraph are marked
 [quoted] and never block, so preserved quotations stay intact. An unclosed
 quotation exempts nothing. `6"` never opens a quotation (it is an inch mark), but
 a straight quote after a digit can close one, so "version 2" stays a quotation and
-an inch mark inside an open quotation ends it. Emphasis delimiters (`*`, `_`) and inline
-code next to a straight quote do not hide its boundary: `**"text"**` and `"`code` text"` are
-quotations. A line without `>` continues a blockquote only while the quote's own content
+an inch mark inside an open quotation ends it. Emphasis delimiters (`*`, `_`) right next to a
+straight quote are looked past, so `**"text"**` is a quotation (emphasis followed by a word,
+as in `"text"**Bold** end`, is not a boundary). Inline code inside a quotation does not hide its
+edge (`"`save` text"`), and code outside it is a boundary (`` `x`"text" ``, `"text"`x` ``). A line without `>` continues a blockquote only while the quote's own content
 ends in an open paragraph; after a quoted heading, thematic break (`---`, `***`, `___`), code
-fence or empty `>` line it is outside the quote.
+fence, empty `>` line or list item that holds only one of these it is outside the quote. An
+HTML block inside a quote is not recognized (a known gap).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from itertools import accumulate
 from pathlib import Path
@@ -251,12 +253,13 @@ def _paragraphs(scan: str):
 QUOTE_MARKER = re.compile(r" {0,3}> ?")
 THEMATIC_BREAK = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})")
 BLOCK_START = re.compile(r" {0,3}(?:#|[-*+] |\d+[.)] |`{3,}|~{3,}|>)")
+LIST_MARKER = re.compile(r" {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)")
 ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
 SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 FENCE_OPEN = re.compile(r" {0,3}(`{3,}|~{3,})([^\r\n]*)")
 CURLY_CLOSERS = {"«": "»", "“": "”", "„": "“”"}
-STRAIGHT_OPEN_AFTER = set("([{«“„—–-/:")
-STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'")
+STRAIGHT_OPEN_AFTER = set("([{«“„—–-/:" + CODE_MARK)  # inline code next to a quote is a boundary
+STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'" + CODE_MARK)
 EMPHASIS = "*_"
 
 
@@ -273,12 +276,23 @@ def _quote_content_state(content: str, open_paragraph: bool,
     indent = len(body) - len(body.lstrip(" \t"))
     if indent >= 4 or body[:1] == "\t":
         return open_paragraph, None  # indented code, or a continuation line of the open paragraph
-    opening = FENCE_OPEN.fullmatch(body)
+    if THEMATIC_BREAK.fullmatch(body):
+        return False, None  # `* * *` and `- - -` are breaks, not list items
+    position = 0
+    while True:  # a list item's content is judged without its markers, nested markers included
+        marker = LIST_MARKER.match(body, position)
+        if not marker:
+            break
+        position = marker.end()
+    if position and not body[position:].strip():
+        return False, None  # an empty list item has no open paragraph
+    content = body[position:]
+    opening = FENCE_OPEN.fullmatch(content)
     if opening and (opening.group(1)[0] != "`" or "`" not in opening.group(2)):
         return False, (opening.group(1)[0], len(opening.group(1)))
-    if ATX_HEADING.match(body) or THEMATIC_BREAK.fullmatch(body):
+    if ATX_HEADING.match(content) or THEMATIC_BREAK.fullmatch(content):
         return False, None
-    if open_paragraph and SETEXT_UNDERLINE.fullmatch(body):
+    if not position and open_paragraph and SETEXT_UNDERLINE.fullmatch(body):
         return False, None  # the underline closes a heading
     return True, None
 
@@ -353,7 +367,8 @@ def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
     one of `. , ; : ! ? ) ] } » ” … — – - '`; an opening bracket after it closes nothing, so
     `"Version 2"[3]` is not a quotation. Runs of `*` and `_` next to the quote are looked past
     (`**"text"**`), and an inline code span counts as a non-space character (the caller passes
-    `quote_scan`). A backslash-escaped quote does neither. After a digit
+    `quote_scan`): inside a quotation it does not hide the edge, outside it is a boundary like
+    a space. A backslash-escaped quote does neither. After a digit
     a quote never opens a quotation (`6"` is an inch mark) but can close one, so "version 2" is
     a quotation and an inch mark inside an open quotation ends it.
     """
@@ -380,23 +395,35 @@ def quoted_ranges(scan: str) -> list[tuple[int, int]]:
     return ranges
 
 
+def _range_lookup(ranges: list[tuple[int, int]]):
+    """A function `(start, end) -> bool`: does some range contain [start, end]? Ranges may nest or
+    overlap; the lookup is a bisect over their starts and the furthest end reached so far."""
+    ordered = sorted(ranges)
+    starts = [start for start, _ in ordered]
+    reach = list(accumulate((end for _, end in ordered), max))
+
+    def contains(start: int, end: int) -> bool:
+        at = bisect_right(starts, start)
+        return at > 0 and end <= reach[at - 1]
+
+    return contains
+
+
 def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
     """Findings as (line, label, excerpt, quoted); quoted matches sit in a quotation."""
     text = path.read_text(encoding="utf-8")
     scan = strip_code_fences(text)
     url_scan = mask_code(text, mask_urls=False)
     ranges = quoted_ranges(quote_scan(text))  # links stay visible so a quote that closes after a link is found
-    ranges.sort()
-    starts = [start for start, _ in ranges]
-    reach = list(accumulate((end for _, end in ranges), max))  # furthest end among ranges starting by here
+    in_quote = _range_lookup(ranges)
+    newlines = [match.start() for match in re.finditer("\n", text)]  # `scan` and `url_scan` keep every "\n"
     detailed: list[tuple[int, str, str, bool]] = []
     for source, patterns in ((scan, PATTERNS), (url_scan, URL_PATTERNS)):
         for label, pattern in patterns:
             for match in pattern.finditer(source):
-                line = source.count("\n", 0, match.start()) + 1
+                line = bisect_left(newlines, match.start()) + 1
                 excerpt = " ".join(match.group(0).split())
-                at = bisect_right(starts, match.start())
-                quoted = at > 0 and match.end() <= reach[at - 1]
+                quoted = in_quote(match.start(), match.end())
                 detailed.append((line, label, excerpt, quoted))
     detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan))
     detailed.sort(key=lambda item: (item[0], item[1], item[2]))

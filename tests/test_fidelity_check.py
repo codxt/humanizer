@@ -363,6 +363,17 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("lost", "quotation", "we will refund it"), found)
         self.assertIn(("added", "quotation", "we refund it"), found)
 
+    def test_quotation_next_to_inline_code(self):
+        for source, edit in (
+            ('Run `x`"we will refund it" now.', "Run `x` now."),
+            ('Run "we will refund it"`x` now.', "Run `x` now."),
+            ('Run "`save` we will refund it" now.', "Run now."),
+            ('Run **"we will refund it"** now.', "Run now."),
+        ):
+            with self.subTest(source=source):
+                self.assertIn(("lost", "quotation", "we will refund it" if "`save`" not in source else "`save` we will refund it"),
+                              changes(source, edit))
+
     def test_quotation_ending_in_a_digit(self):
         self.assertIn(("lost", "quotation", "Version 2"), changes('He said "Version 2" and left.', "He said Version 2 and left."))
 
