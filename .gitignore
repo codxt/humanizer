@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Claude Code per-user local settings (permissions, may hold tokens): never commit
+**/.claude/settings.local.json
