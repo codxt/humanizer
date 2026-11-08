@@ -363,6 +363,17 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("lost", "quotation", "we will refund it"), found)
         self.assertIn(("added", "quotation", "we refund it"), found)
 
+    def test_quotation_next_to_inline_code(self):
+        for source, edit in (
+            ('Run `x`"we will refund it" now.', "Run `x` now."),
+            ('Run "we will refund it"`x` now.', "Run `x` now."),
+            ('Run "`save` we will refund it" now.', "Run now."),
+            ('Run **"we will refund it"** now.', "Run now."),
+        ):
+            with self.subTest(source=source):
+                self.assertIn(("lost", "quotation", "we will refund it" if "`save`" not in source else "`save` we will refund it"),
+                              changes(source, edit))
+
     def test_quotation_ending_in_a_digit(self):
         self.assertIn(("lost", "quotation", "Version 2"), changes('He said "Version 2" and left.', "He said Version 2 and left."))
 
@@ -374,6 +385,52 @@ class FidelityCheckTests(unittest.TestCase):
         source = "> We will refund\n> the full amount.\n\nThanks.\n"
         edit = "> We will refund the full amount.\n\nThanks.\n"
         self.assertEqual(check.compare(source, edit), [])
+
+    def test_blockquote_path_of_quotation_check(self):
+        self.assertIn(("lost", "quotation", "We will refund it"),
+                      changes("> We will refund it.\n\nThanks.\n", "Thanks.\n"))
+        # text after a thematic break is outside the blockquote, so rewriting it is not a quotation change
+        self.assertFalse([item for item in changes("> Old promise.\n---\nSee you soon.\n", "> Old promise.\n---\nBye.\n")
+                          if item[1] == "quotation"])
+        self.assertIn(("lost", "quotation", "Old promise"),
+                      changes("> Old promise.\n---\nSee you soon.\n", "---\nSee you soon.\n"))
+
+    def test_fidelity_keeps_lazy_lines_after_quoted_containers(self):
+        for first in ("> - Refund it.\n", "> <div>\n", "> [ref]: /url\n"):
+            source = first + "The reply was friendly.\n"
+            edit = first + "The answer was friendly.\n"
+            with self.subTest(first=first):
+                found = changes(source, edit)
+                self.assertTrue(any(change == "lost" and category == "quotation" and "reply" in item
+                                    for change, category, item in found))
+                self.assertTrue(any(change == "added" and category == "quotation" and "answer" in item
+                                    for change, category, item in found))
+                with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+                    src, dst = Path(directory) / "src.md", Path(directory) / "edit.md"
+                    src.write_text(source, encoding="utf-8")
+                    dst.write_text(edit, encoding="utf-8")
+                    self.assertEqual(check.main(["fidelity_check.py", "--strict", str(src), str(dst)]), 1)
+
+    def test_inline_quotation_preserves_list_lines(self):
+        source = 'The plan said: "we need\n- more time\n- more budget"\n'
+        for ending in ("\n", "\r\n"):
+            text = source.replace("\n", ending)
+            with self.subTest(ending=ending):
+                found = changes(text, text.replace("more time", "less time"))
+                self.assertIn(("lost", "quotation", "we need - more time - more budget"), found)
+                self.assertIn(("added", "quotation", "we need - less time - more budget"), found)
+
+    def test_inline_quotation_preserves_numeric_ending_after_sentence_stop(self):
+        source = 'The agent wrote: "The refund is processed weekly. Step 2"\n'
+        found = changes(source, source.replace("weekly", "monthly"))
+        self.assertIn(("lost", "quotation", "The refund is processed weekly. Step 2"), found)
+        self.assertIn(("added", "quotation", "The refund is processed monthly. Step 2"), found)
+
+    def test_inline_quotation_preserves_raw_crlf_block_boundaries(self):
+        source = 'He said "first\r\n***\r\nold text\r\nend"\r\n'
+        found = changes(source, source.replace("old text", "new text"))
+        self.assertIn(("lost", "quotation", "first *** old text end"), found)
+        self.assertIn(("added", "quotation", "first *** new text end"), found)
 
     def test_link_and_code_and_citation(self):
         source = "See https://example.org/terms and run `make test` [3]."

@@ -9,11 +9,30 @@ origination and not automatic replacement instructions. By default every match
 is report-only. `--fail-on LABEL` turns matches of that label into blocking
 findings (exit 1) for CI gates; choose only high-precision labels such as
 `assistant residue` and `chatbot artifact`. Matches inside a closed quotation (straight, «», “”, „“;
-it may span lines within a paragraph) or a blockquote paragraph are marked
+it may span ordinary paragraph lines, but not block-start lines) or a blockquote paragraph are marked
 [quoted] and never block, so preserved quotations stay intact. An unclosed
 quotation exempts nothing. `6"` never opens a quotation (it is an inch mark), but
-a straight quote after a digit can close one, so "version 2" stays a quotation and
-an inch mark inside an open quotation ends it.
+in strict gate mode a straight quote after a digit closes one only if no `.`, `!`, `?` or `…`
+precedes it in the candidate outside code. Otherwise discard it: a later inch mark must not
+rescue a stray opener.
+This also blocks some genuine quotations ending in a number; "version 2" stays a quotation.
+Emphasis delimiters (`*`, `_`) right next to a straight quote are looked past, so `**"text"**`
+is a quotation (emphasis followed by a word,
+as in `"text"**Bold** end`, is not a boundary). Inline code inside a quotation does not hide its
+edge (`"`save` text"`), and code outside it is a boundary (`` `x`"text" ``, `"text"`x` ``).
+A line without `>` continues a blockquote only while the quote's own content ends in an open
+paragraph: after a quoted heading, thematic break (`---`, `***`, `___`), setext underline, code
+fence, indented code or empty `>` line it is outside the quote. Once a line of the blockquote
+starts a list item, an HTML block or a link reference definition, no unmarked line after it is
+quoted (CommonMark would sometimes still quote it; the gate prefers to block there). An unmarked
+line that starts an HTML block ends the quote. Lines inside top-level HTML blocks and marked
+HTML continuation lines inside blockquotes get no blockquote exemption; the marked HTML opening
+line remains exempt. Missing quote markers at the containing depth end the quoted HTML block.
+HTML types 1–5 run through their end condition even across blank lines; other HTML-looking
+blocks run to a blank line. Tabs are expanded at four-column stops for blockquote structure.
+The gate uses strict quotation detection; fidelity passes `strict=False` to keep inline quotations
+across block starts and permit digit closers after sentence stops, with inclusive blockquote grouping.
+These are conservative heuristics, not a full CommonMark parser; see README for known limits.
 """
 
 from __future__ import annotations
@@ -21,7 +40,9 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from bisect import bisect_left, bisect_right
 from collections import Counter
+from itertools import accumulate
 from pathlib import Path
 
 
@@ -78,8 +99,8 @@ def _mask_ranges(text: str, ranges: list[tuple[int, int]]) -> str:
     return "".join(chars)
 
 
-def code_ranges(text: str) -> list[tuple[int, int]]:
-    """Offsets of fenced code blocks (fence lines included) and inline code spans."""
+def _fence_ranges(text: str) -> list[tuple[int, int]]:
+    """Offsets of fenced code blocks, fence lines included."""
     ranges: list[tuple[int, int]] = []
     fence_char = ""
     fence_length = 0
@@ -101,6 +122,12 @@ def code_ranges(text: str) -> list[tuple[int, int]]:
         offset += len(line)
     if fence_char:
         ranges.append((block_start, len(text)))
+    return ranges
+
+
+def code_ranges(text: str) -> list[tuple[int, int]]:
+    """Offsets of fenced code blocks (fence lines included) and inline code spans."""
+    ranges = _fence_ranges(text)
     ranges.extend(_inline_code_spans(_mask_ranges(text, ranges)))
     return sorted(ranges)
 
@@ -138,6 +165,23 @@ def mask_code(text: str, mask_urls: bool = True) -> str:
     return scan
 
 
+CODE_MARK = "\x00"  # stands in for an inline code span where quotation boundaries are judged
+
+
+def quote_scan(text: str) -> str:
+    """Text for finding quotations, offsets and line numbers preserved: top-level fenced code is
+    blanked (it still separates paragraphs; a fence inside a blockquote stays visible, as part of
+    the quote) and each inline code span becomes `CODE_MARK` characters, so a quote next to code
+    sees a non-space neighbour instead of the blanked span. Links stay visible. A literal NUL in
+    the text becomes U+0001 so it cannot pass for code."""
+    fences = _fence_ranges(text)
+    scan = _mask_ranges(text, fences).replace(CODE_MARK, "\x01")  # a literal NUL must not pose as code
+    chars = list(scan)
+    for start, end in _inline_code_spans(scan):
+        chars[start:end] = [char if char in "\r\n" else CODE_MARK for char in scan[start:end]]
+    return "".join(chars)
+
+
 def strip_code_fences(text: str) -> str:
     """Mask Markdown code and links while preserving source offsets and line numbers."""
     return mask_code(text)
@@ -152,7 +196,7 @@ def uniform_heading_geometry(scan: str) -> list[tuple[int, str, str]]:
     can be intentional, so every hit requires human/source review.
     """
     headings: list[tuple[int, int, str]] = []
-    for number, line_text in enumerate(scan.splitlines(), 1):
+    for number, line_text in enumerate(scan.split("\n"), 1):
         match = MARKDOWN_HEADING.match(line_text)
         if match:
             headings.append((number, len(match.group(1)), match.group(2).strip()))
@@ -202,28 +246,185 @@ def uniform_heading_geometry(scan: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-PARAGRAPH = re.compile(r"(?:[^\n]*\S[^\n]*(?:\n|$))+")
-BLOCKQUOTE_START = re.compile(r"^ {0,3}>")
-BLOCK_START = re.compile(r"^ {0,3}(?:#|[-*+] |\d+[.)] |`{3,}|~{3,}|>)")
+def _paragraphs(scan: str, *, block_boundaries: bool = False):
+    """Yield (offset, text) for each maximal run of lines (ended by `\\n`) that contain a
+    non-whitespace character; one linear pass. With `block_boundaries`, isolate lines starting
+    Markdown blocks so an inline quotation cannot span one (a conservative approximation)."""
+    offset = 0
+    start = -1
+    lines = scan.split("\n")
+    for index, line in enumerate(lines):
+        length = len(line) + (1 if index < len(lines) - 1 else 0)
+        body = line.expandtabs(4).rstrip("\r\n") if block_boundaries else line
+        if block_boundaries and (BLOCK_START.match(body) or HTML_BLOCK_START.match(body)
+                                 or THEMATIC_BREAK.fullmatch(body) or SETEXT_UNDERLINE.fullmatch(body)):
+            if start >= 0:
+                yield start, scan[start:offset]
+                start = -1
+            yield offset, scan[offset:offset + length]
+        elif line.strip():
+            if start < 0:
+                start = offset
+        elif start >= 0:
+            yield start, scan[start:offset]
+            start = -1
+        offset += length
+    if start >= 0:
+        yield start, scan[start:offset]
+
+
+QUOTE_MARKER = re.compile(r" {0,3}> ?")
+THEMATIC_BREAK = re.compile(r" {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})")
+BLOCK_START = re.compile(r" {0,3}(?:#|[-*+][ \t]|\d+[.)][ \t]|`{3,}|~{3,}|>)")
+LIST_MARKER = re.compile(r" {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)")
+HTML_BLOCK_START = re.compile(r" {0,3}<[A-Za-z/!?]")
+HTML_ENDS = (
+    (re.compile(r" {0,3}<(script|pre|style|textarea)(?=[\s>]|$)", re.I), None),
+    (re.compile(r" {0,3}<!--"), re.compile(r"-->")),
+    (re.compile(r" {0,3}<\?"), re.compile(r"\?>")),
+    (re.compile(r" {0,3}<![A-Z]"), re.compile(r">")),
+    (re.compile(r" {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
+)
+LINK_DEFINITION = re.compile(r" {0,3}\[[^\]\r\n]+\]:")
+ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
+FENCE_OPEN = re.compile(r" {0,3}(`{3,}|~{3,})([^\r\n]*)")
 CURLY_CLOSERS = {"«": "»", "“": "”", "„": "“”"}
-STRAIGHT_OPEN_AFTER = set("([{«“„—–-/:")
-STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'")
+STRAIGHT_OPEN_AFTER = set("([{«“„—–-/:" + CODE_MARK)  # inline code next to a quote is a boundary
+STRAIGHT_CLOSE_BEFORE = set(".,;:!?)]}»”…—–-'" + CODE_MARK)
+EMPHASIS = "*_"
 
 
-def _blockquote_ranges(scan: str) -> list[tuple[int, int]]:
+def _quote_content_state(content: str, open_paragraph: bool,
+                         fence: tuple[str, int] | None) -> tuple[bool, tuple[str, int] | None]:
+    """After one line of blockquote content (the `>` markers already removed): whether a paragraph
+    is open, so that an unmarked line continues it lazily, and whether a fenced code block is open.
+    An empty line, a heading, a thematic break, a setext underline or fenced code leaves no open
+    paragraph. Indentation of four columns continues an existing paragraph, otherwise it is code.
+    The caller expands tabs at four-column stops before stripping quote markers."""
+    body = content.rstrip("\r\n")
+    if fence:
+        closing = re.fullmatch(r" {0,3}(" + re.escape(fence[0]) + "{" + str(fence[1]) + r",})[ \t]*", body)
+        return False, (None if closing else fence)
+    if not body.strip():
+        return False, None
+    indent = len(body) - len(body.lstrip(" \t"))
+    if indent >= 4 or body[:1] == "\t":
+        return open_paragraph, None  # indented code, or a continuation line of the open paragraph
+    opening = FENCE_OPEN.fullmatch(body)
+    if opening and (opening.group(1)[0] != "`" or "`" not in opening.group(2)):
+        return False, (opening.group(1)[0], len(opening.group(1)))
+    if ATX_HEADING.match(body) or THEMATIC_BREAK.fullmatch(body):
+        return False, None
+    if open_paragraph and SETEXT_UNDERLINE.fullmatch(body):
+        return False, None  # the underline closes a heading
+    return True, None
+
+
+def _starts_container(content: str) -> bool:
+    """Does this line of blockquote content start a list item, an HTML block or a link reference
+    definition? A whole-line thematic break (`* * *`, `- - -`) is not a list item."""
+    body = content.rstrip("\r\n")
+    if THEMATIC_BREAK.fullmatch(body):
+        return False
+    return bool(LIST_MARKER.match(body) or HTML_BLOCK_START.match(body) or LINK_DEFINITION.match(body))
+
+
+def _html_block_end(body: str) -> re.Pattern[str] | None:
+    """End condition for an HTML-looking block; None means it ends at a blank line."""
+    for opening, ending in HTML_ENDS:
+        match = opening.match(body)
+        if match:
+            return ending if ending is not None else re.compile(r"</" + match[1] + ">", re.I)
+    return None
+
+
+def _blockquote_ranges(scan: str, *, inclusive: bool = False) -> list[tuple[int, int]]:
     """Each blockquote paragraph as one range: a `>` line and the lines that continue it, up to a
-    blank line or a new block, so a match that spans two of its lines is still quoted."""
+    blank line or a new block, so a match that spans two of its lines is still quoted.
+
+    An unmarked line continues the quote lazily only while the quote's own content ends in an open
+    paragraph: not after a heading, thematic break, setext underline, code fence, indented code
+    or empty `>` line. Once any line of the blockquote starts a list item, an HTML block or a link
+    reference definition (outside a fenced block), no unmarked line is lazily quoted for the rest
+    of that blockquote: the nested structure is not modelled, and the gate prefers to block. An
+    unmarked line that starts an HTML block ends the quote. HTML types 1–5 run through their end
+    condition, including blank lines; other HTML-looking blocks run to a blank line. Marked HTML
+    continuation lines inside a blockquote are also excluded until that block ends. The marked
+    opening line stays in the range; missing markers at the containing depth end that HTML block.
+
+    Fidelity uses `inclusive=True`: group all unmarked continuations up to a blank line or an
+    unmarked heading/list/fence marker or thematic break, regardless of paragraph/container state,
+    so the gate's blocking bias cannot hide edits."""
     ranges: list[tuple[int, int]] = []
     offset = 0
     inside = False
-    for line in scan.splitlines(keepends=True):
-        if not line.strip():
+    open_paragraph = False
+    container = False
+    html_block = False
+    html_end: re.Pattern[str] | None = None
+    quoted_html = False
+    quoted_html_end: re.Pattern[str] | None = None
+    quoted_html_depth = 0
+    fence: tuple[str, int] | None = None
+    for line in LINE.findall(scan):
+        body = line.expandtabs(4)  # column positions include the quote markers
+        html_content = False
+        if not QUOTE_MARKER.match(body):
+            quoted_html, quoted_html_end = False, None
+        if inclusive:
+            if not body.strip():
+                inside = False
+            elif QUOTE_MARKER.match(body):
+                inside = True
+            elif BLOCK_START.match(body) or THEMATIC_BREAK.fullmatch(body.rstrip("\r\n")):
+                inside = False
+        elif html_block:
             inside = False
-        elif BLOCKQUOTE_START.match(line):
+            if (html_end and html_end.search(body)) or (html_end is None and not body.strip()):
+                html_block, html_end = False, None
+        elif not body.strip():
+            inside = False
+        elif QUOTE_MARKER.match(body):
+            if not inside:
+                open_paragraph, fence, container = False, None, False
             inside = True
-        elif inside and BLOCK_START.match(line):
+            position = 0
+            depth = 0
+            while not quoted_html or depth < quoted_html_depth:
+                marker = QUOTE_MARKER.match(body, position)
+                if not marker:
+                    break
+                position = marker.end()
+                depth += 1
+            if quoted_html and depth < quoted_html_depth:
+                quoted_html, quoted_html_end = False, None
+            content = body[position:]
+            if quoted_html:
+                html_content = True
+                open_paragraph = False
+                if ((quoted_html_end and quoted_html_end.search(content))
+                        or (quoted_html_end is None and not content.strip())):
+                    quoted_html, quoted_html_end = False, None
+            else:
+                container = container or (not fence and _starts_container(content))
+                open_paragraph, fence = _quote_content_state(content, open_paragraph, fence)
+                if not fence and HTML_BLOCK_START.match(content):
+                    quoted_html_end = _html_block_end(content)
+                    quoted_html = not (quoted_html_end and quoted_html_end.search(content))
+                    quoted_html_depth = depth
+        elif inside and open_paragraph and not container and not (
+                BLOCK_START.match(body) or HTML_BLOCK_START.match(body)
+                or THEMATIC_BREAK.fullmatch(body.rstrip("\r\n"))):
+            pass  # lazy continuation of the open paragraph
+        else:
             inside = False
-        if inside:
+            html_block = bool(HTML_BLOCK_START.match(body))
+            if html_block:
+                html_end = _html_block_end(body)
+                if html_end and html_end.search(body):
+                    html_block, html_end = False, None
+        if inside and not html_content:
             if ranges and ranges[-1][1] == offset:
                 ranges[-1] = (ranges[-1][0], offset + len(line))
             else:
@@ -232,54 +433,89 @@ def _blockquote_ranges(scan: str) -> list[tuple[int, int]]:
     return ranges
 
 
+def _skip_emphasis(text: str, i: int, step: int) -> str:
+    """The character at `i`, looking past a run of `*` and `_` (Markdown emphasis delimiters)."""
+    while 0 <= i < len(text) and text[i] in EMPHASIS:
+        i += step
+    return text[i] if 0 <= i < len(text) else ""
+
+
 def _straight_opener(text: str, i: int) -> bool:
-    before = text[i - 1] if i else ""
-    after = text[i + 1] if i + 1 < len(text) else ""
-    if before == "\\" or not after or after.isspace():
+    before = _skip_emphasis(text, i - 1, -1)
+    after = _skip_emphasis(text, i + 1, 1)
+    if (i and text[i - 1] == "\\") or not after or after.isspace():
         return False
     return before == "" or before.isspace() or before in STRAIGHT_OPEN_AFTER
 
 
 def _straight_closer(text: str, i: int) -> bool:
-    before = text[i - 1] if i else ""
-    after = text[i + 1] if i + 1 < len(text) else ""
-    if before == "\\" or not before or before.isspace():
+    before = _skip_emphasis(text, i - 1, -1)
+    after = _skip_emphasis(text, i + 1, 1)
+    if (i and text[i - 1] == "\\") or not before or before.isspace():
         return False
     return after == "" or after.isspace() or after in STRAIGHT_CLOSE_BEFORE
 
 
-def _quotation_ranges(paragraph: str, base: int) -> list[tuple[int, int]]:
+def _quotation_ranges(paragraph: str, base: int, *, strict: bool = True) -> list[tuple[int, int]]:
     """Closed quotations inside one paragraph; an unclosed quotation exempts nothing.
 
     A straight quote opens a quotation when the next character is not a space and the previous
     one is the start of the text, a space, or one of `( [ { « “ „ — – - / :`. It closes one when
     the previous character is not a space and the next one is the end of the text, a space, or
     one of `. , ; : ! ? ) ] } » ” … — – - '`; an opening bracket after it closes nothing, so
-    `"Version 2"[3]` is not a quotation. A backslash-escaped quote does neither. After a digit
-    a quote never opens a quotation (`6"` is an inch mark) but can close one, so "version 2" is
-    a quotation and an inch mark inside an open quotation ends it.
+    `"Version 2"[3]` is not a quotation. Runs of `*` and `_` next to the quote are looked past
+    (`**"text"**`), and an inline code span counts as a non-space character (the caller passes
+    `quote_scan`): inside a quotation it does not hide the edge, outside it is a boundary like
+    a space. A backslash-escaped quote does neither. After a digit
+    a quote never opens a quotation (`6"` is an inch mark). In strict gate mode it closes one
+    only if no `.`, `!`, `?` or `…` precedes it inside that quotation (code is masked).
+    Otherwise discard that candidate:
+    a later inch mark must not rescue a stray opener. This deliberately blocks some genuine
+    multi-sentence quotations ending in a digit; "version 2" stays a quotation. Fidelity passes
+    `strict=False` to preserve comparisons even when the candidate contains sentence stops.
     """
     ranges: list[tuple[int, int]] = []
-    stack: list[tuple[str, int]] = []
+    stack: list[tuple[str, int, int]] = []
+    stops = 0
     for i, char in enumerate(paragraph):
+        if char in ".!?…":
+            stops += 1
         if stack and char in stack[-1][0]:
             if char != '"' or _straight_closer(paragraph, i):
-                _, start = stack.pop()
-                ranges.append((base + start, base + i + 1))
+                _, start, opened_stops = stack.pop()
+                if (not strict or char != '"' or not _skip_emphasis(paragraph, i - 1, -1).isdigit()
+                        or stops == opened_stops):
+                    ranges.append((base + start, base + i + 1))
                 continue
         if char in CURLY_CLOSERS:
-            stack.append((CURLY_CLOSERS[char], i))
+            stack.append((CURLY_CLOSERS[char], i, stops))
         elif char == '"' and _straight_opener(paragraph, i):
-            stack.append(('"', i))
+            stack.append(('"', i, stops))
     return ranges
 
 
-def quoted_ranges(scan: str) -> list[tuple[int, int]]:
-    """Offsets of blockquote paragraphs and closed quotations (may span lines)."""
-    ranges = _blockquote_ranges(scan)
-    for match in PARAGRAPH.finditer(scan):
-        ranges.extend(_quotation_ranges(match.group(0), match.start()))
+def quoted_ranges(scan: str, *, strict: bool = True) -> list[tuple[int, int]]:
+    """Quotation offsets: strict for the gate, permissive for fidelity. Permissive detection
+    includes blockquote continuations after containers, keeps inline quotations across block
+    starts within nonblank runs, and permits digit closers after sentence stops."""
+    ranges = _blockquote_ranges(scan, inclusive=not strict)
+    for start, paragraph in _paragraphs(scan, block_boundaries=strict):
+        ranges.extend(_quotation_ranges(paragraph, start, strict=strict))
     return ranges
+
+
+def _range_lookup(ranges: list[tuple[int, int]]):
+    """A function `(start, end) -> bool`: does some range contain [start, end]? Ranges may nest or
+    overlap; the lookup is a bisect over their starts and the furthest end reached so far."""
+    ordered = sorted(ranges)
+    starts = [start for start, _ in ordered]
+    reach = list(accumulate((end for _, end in ordered), max))
+
+    def contains(start: int, end: int) -> bool:
+        at = bisect_right(starts, start)
+        return at > 0 and end <= reach[at - 1]
+
+    return contains
 
 
 def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
@@ -287,16 +523,18 @@ def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
     text = path.read_text(encoding="utf-8")
     scan = strip_code_fences(text)
     url_scan = mask_code(text, mask_urls=False)
-    ranges = quoted_ranges(url_scan)  # links stay visible so a quote that closes after a link is found
+    ranges = quoted_ranges(quote_scan(text))  # links stay visible so a quote that closes after a link is found
+    in_quote = _range_lookup(ranges)
+    newlines = [match.start() for match in re.finditer("\n", text)]  # `scan` and `url_scan` keep every "\n"
     detailed: list[tuple[int, str, str, bool]] = []
     for source, patterns in ((scan, PATTERNS), (url_scan, URL_PATTERNS)):
         for label, pattern in patterns:
             for match in pattern.finditer(source):
-                line = source.count("\n", 0, match.start()) + 1
+                line = bisect_left(newlines, match.start()) + 1
                 excerpt = " ".join(match.group(0).split())
-                quoted = any(start <= match.start() and match.end() <= end for start, end in ranges)
+                quoted = in_quote(match.start(), match.end())
                 detailed.append((line, label, excerpt, quoted))
-    detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan))
+    detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan, newlines))
     detailed.sort(key=lambda item: (item[0], item[1], item[2]))
     return detailed
 
@@ -305,17 +543,17 @@ def lint(path: Path) -> list[tuple[int, str, str]]:
     return [(line, label, excerpt) for line, label, excerpt, _ in lint_detailed(path)]
 
 
-def _structural(scan: str) -> list[tuple[int, str, str]]:
+def _structural(scan: str, newlines: list[int]) -> list[tuple[int, str, str]]:
     findings: list[tuple[int, str, str]] = []
 
-    for number, line_text in enumerate(scan.splitlines(), 1):
+    for number, line_text in enumerate(scan.split("\n"), 1):
         if BOLD_LABEL.search(line_text):
             findings.append((number, "bold-label bullet", line_text.strip()))
         if TITLE_CASE_HEADING.search(line_text):
             findings.append((number, "title-case heading", line_text.strip()))
 
     for match in STACKED_SHORT.finditer(scan):
-        line = scan.count("\n", 0, match.start()) + 1
+        line = bisect_left(newlines, match.start()) + 1
         excerpt = " / ".join(part.strip() for part in match.group(0).splitlines() if part.strip())
         findings.append((line, "stacked short-sentence rhythm", excerpt[:220]))
 
