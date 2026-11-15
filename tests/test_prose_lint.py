@@ -693,5 +693,121 @@ class ProseLintTests(unittest.TestCase):
         self.assertEqual(self.labels(text).count("procedural assurance"), 6)
 
 
+class ReviewFindingsProseLintTests(unittest.TestCase):
+    """Regressions for the 2026-11-15 Grok review of prose_lint.py."""
+
+    def run_cli(self, text, *options):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.md"
+            path.write_bytes(text.encode("utf-8"))
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = lint.main(["prose_lint.py", *options, str(path)])
+            return code, out.getvalue(), err.getvalue()
+
+    def gate(self, text):
+        return self.run_cli(text, "--fail-on", "assistant residue")[0]
+
+    def labels(self, text):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.md"
+            path.write_text(text, encoding="utf-8")
+            return [item[1] for item in lint.lint(path)]
+
+    def test_unicode_spaces_and_joiners_do_not_hide_residue(self):
+        for text in ("Hope\u00a0this helps.", "Hope\u202fthis helps.", "Hope\u2009this helps.",
+                     "Hope\u200bthis helps.", "as an AI\u00a0language model",
+                     "отличный\u00a0вопрос", "Надеюсь,\u00a0это поможет", "Надеюсь\u00a0это поможет",
+                     "Надеюсь,\u202fчто это поможет."):
+            with self.subTest(text=text):
+                code, out, _ = self.run_cli(text + "\n", "--fail-on", "assistant residue")
+                self.assertEqual(code, 1, out)
+                self.assertIn("[blocking]", out)
+
+    def test_indented_code_is_masked(self):
+        for text in ("    Hope this helps.\n", "Para.\n\n\tHope this helps.\n",
+                     "    Hope this helps.\n\n    And this.\n", "```\nHope this helps.\n```\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 0)
+        # an indented line that continues a paragraph is prose, not code
+        self.assertEqual(self.gate("Para.\n    Hope this helps.\n"), 1)
+
+    def test_list_item_paragraph_after_blank_line_is_prose(self):
+        for text in ("- item\n\n    Hope this helps.\n",
+                     "* item\n\n    Hope this helps.\n",
+                     "1. item\n\n    Hope this helps.\n",
+                     "- item\n\n\tHope this helps.\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 1)
+        # the code mark sits at the item's content indent plus four
+        self.assertEqual(self.gate("- item\n\n      Hope this helps.\n"), 0)
+        # a line that closes the list makes a four-space block code again
+        self.assertEqual(self.gate("- item\n\nOutside.\n\n    Hope this helps.\n"), 0)
+        # a nested item moves the mark further in
+        self.assertEqual(self.gate("- item\n  - nested\n\n    Hope this helps.\n"), 1)
+        # a list marker inside a fenced example opens no item
+        self.assertEqual(self.gate("```\n- item\n```\n\n    Hope this helps.\n"), 0)
+
+    def test_fence_inside_list_item_stays_code(self):
+        for text in ("- item\n\n    ```\n    Hope this helps.\n    ```\n",
+                     "- item\n\n     ~~~\n     Hope this helps.\n     ~~~\n",
+                     "10. item\n\n     ```\n     Hope this helps.\n     ```\n",
+                     "- item\n  - nested\n\n      ```\n      Hope this helps.\n      ```\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text), 0)
+        # an unclosed fence ends with its item: later dedented prose is checked
+        self.assertEqual(self.gate("- item\n\n    ```\n    code\n\nmd\n\nHope this helps.\n"), 1)
+        self.assertEqual(self.gate("1. Step.\n\n    ````bash\n    echo hi\n        ````\n\n## Next\n\nHope this helps.\n"), 1)
+        # the ended item no longer moves the code mark
+        self.assertEqual(self.gate("- item\n\n    ```\n    code\nEnds here.\n\n    Hope this helps.\n"), 0)
+        # prose after the fence closes is checked again
+        self.assertEqual(self.gate("- item\n\n    ```\n    x\n    ```\n\n    Hope this helps.\n"), 1)
+
+    def test_russian_hope_phrase_needs_no_fixed_comma(self):
+        for text in ("Надеюсь это поможет.", "Надеюсь, что это поможет.", "Надеюсь, это поможет."):
+            with self.subTest(text=text):
+                self.assertEqual(self.gate(text + "\n"), 1)
+
+    def test_russian_formulaic_contrast(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.md"
+            path.write_text("Это не черновик, а решение.\n", encoding="utf-8")
+            self.assertIn((1, "russian formulaic contrast", "не черновик, а решение"), lint.lint(path))
+        self.assertNotIn("russian formulaic contrast", self.labels("Это не менее 3 дней, а также далее.\n"))
+
+    def test_generic_authority_singular(self):
+        for text in ("The expert says the market grew.\n", "Эксперт отмечает рост.\n",
+                     "Эксперты говорят о росте.\n", "Experts say the market grew.\n"):
+            with self.subTest(text=text):
+                self.assertIn("generic authority", self.labels(text))
+
+    def test_residue_phrase_wrapped_across_a_line_break(self):
+        for text in ("Hope this\nhelps.\n", "I hope this\nwas helpful.\n",
+                     "as an AI\nlanguage model wrote this.\n", "Great\nquestion\n",
+                     "Надеюсь,\nэто поможет.\n", "отличный\nвопрос\n"):
+            with self.subTest(text=text):
+                code, out, _ = self.run_cli(text, "--fail-on", "assistant residue")
+                self.assertEqual(code, 1, out)
+                self.assertIn("[blocking]", out)
+
+    def test_structural_labels_honour_blockquote_quotes(self):
+        # Only the rhythm label can sit inside a blockquote: a bold label, an ATX heading and the
+        # geometry parent must start their line, where `>` is not valid.
+        def flagged(text):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "sample.md"
+                path.write_text(text, encoding="utf-8")
+                return [(line, label, quoted) for line, label, _, quoted in lint.lint_detailed(path)]
+
+        found = flagged("From the letter:\n\n> One.\n> Two.\n> Three.\n")
+        self.assertEqual(found, [(3, "stacked short-sentence rhythm", True)])
+        self.assertEqual(self.run_cli("From the letter:\n\n> One.\n> Two.\n> Three.\n",
+                                      "--fail-on", "stacked short-sentence rhythm")[0], 0)
+        # the same rhythm outside a quotation still blocks
+        self.assertEqual(flagged("One.\nTwo.\nThree.\n"), [(1, "stacked short-sentence rhythm", False)])
+        self.assertEqual(self.run_cli("One.\nTwo.\nThree.\n",
+                                      "--fail-on", "stacked short-sentence rhythm")[0], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

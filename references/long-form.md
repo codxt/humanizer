@@ -28,7 +28,7 @@ A material restructure, source-fidelity repair, merge/split, or argument reorder
 Optional report-only lint:
 
 ```text
-python3 -S .agents/skills/humanizer/scripts/prose_lint.py <file>
+python3 -S scripts/prose_lint.py <file>
 ```
 
 The script flags candidate phrase clusters, formatting patterns, and simple Markdown heading-geometry regularity for review. A match is never automatic evidence of AI authorship and must not trigger blind replacement.

@@ -29,7 +29,14 @@ line that starts an HTML block ends the quote. Lines inside top-level HTML block
 HTML continuation lines inside blockquotes get no blockquote exemption; the marked HTML opening
 line remains exempt. Missing quote markers at the containing depth end the quoted HTML block.
 HTML types 1–5 run through their end condition even across blank lines; other HTML-looking
-blocks run to a blank line. Tabs are expanded at four-column stops for blockquote structure.
+blocks run to a blank line. Tabs are expanded at four-column stops for blockquote structure,
+and four-column indented code blocks (after a blank line or at the start of the text) are
+masked like fenced code; an indented line that continues a paragraph stays prose, and inside a
+list item the code mark sits at the item's content indent plus four, so `- item`, a blank line
+and a four-space line is the item's next paragraph, not code.
+Unicode spaces (no-break, narrow no-break, thin) and invisible joiners are folded to a space
+before matching, and residue phrases allow any run of whitespace between their words, so neither
+a pasted no-break space nor a hard line break inside a phrase can hide it.
 The gate uses strict quotation detection; fidelity passes `strict=False` to keep inline quotations
 across block starts and permit digit closers after sentence stops, with inclusive blockquote grouping.
 These are conservative heuristics, not a full CommonMark parser; see README for known limits.
@@ -47,7 +54,7 @@ from pathlib import Path
 
 
 PATTERNS = [
-    ("assistant residue", re.compile(r"(?<!\w)(?:i hope this (?:helps|was helpful)|hope this helps|great question|as an ai (?:language model|assistant)|надеюсь, это (?:поможет|было полезно)|отличный вопрос|как языковая модель)(?!\w)", re.I)),
+    ("assistant residue", re.compile(r"(?<!\w)(?:i\s+hope\s+this\s+(?:helps|was\s+helpful)|hope\s+this\s+helps|great\s+question|as\s+an\s+ai\s+(?:language\s+model|assistant)|надеюсь,?\s+(?:что\s+)?это\s+(?:поможет|было полезно)|отличный\s+вопрос|как\s+языковая\s+модель)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"\b(?:let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update)\b", re.I)),
     ("russian chatbot residue", re.compile(r"(?<!\w)(?:давайте разбер[её]мся|с радостью помогу)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"(?<!\w)(?:would you like me to|let me know if you(?:(?:'|’)d| would)? like|is there anything else (?:i can|you(?:(?:'|’)d| would) like)|delete this (?:section|note) before (?:submission|submitting|publishing|publication)|here(?:(?:'|’)s| is) (?:a|the|your) (?:revised|updated|polished|rewritten|improved) (?:version|draft|text)|it(?:(?:'|’)s| is) important to (?:note|remember)|certainly!|you(?:(?:'|’)re| are) absolutely right)(?!\w)", re.I)),
@@ -57,10 +64,10 @@ PATTERNS = [
     ("abstract metaphor noun", re.compile(r"\b(?:substrate|locus|nexus|bedrock|north star|flywheel)s?\b", re.I)),
     ("significance claim", re.compile(r"\b(?:marks? a (?:major |key |pivotal )?(?:shift|turning point|milestone)|statement of intent|new era|broader trend|testament to|underscores? (?:the )?(?:importance|significance))\b", re.I)),
     ("formulaic contrast", re.compile(r"\b(?:not (?:just|only|simply)\b|not\s+[^.!?;:]{1,80}\s+but\s+[^.!?;:]{1,80}|less about\s+[^.!?;:]{1,80}\s+more about)\b", re.I)),
-    ("russian formulaic contrast", re.compile(r"\b(?:не просто|не только|не столько|дело не в)\b", re.I)),
+    ("russian formulaic contrast", re.compile(r"\b(?:не просто|не только|не столько|дело не в|не\s+[^.!?;:]{1,40},\s*а\s+(?!(?:также|именно|потому|затем|потом|теперь|значит|если|когда|пока)\b)[^.!?;:]{1,40})\b", re.I)),
     ("russian metacommentary", re.compile(r"\b(?:важно отметить|следует отметить|стоит подчеркнуть|необходимо понимать|нельзя не отметить|отдельного внимания заслуживает)\b", re.I)),
     ("russian bureaucratic padding", re.compile(r"\b(?:в рамках данного|на сегодняшний день|на текущий момент|осуществляется работа по|в целях обеспечения)\b", re.I)),
-    ("generic authority", re.compile(r"\b(?:experts? (?:say|argue|believe|note)|research shows|observers? note|эксперты (?:отмечают|считают)|исследования показывают|аналитики полагают|как показывает практика)\b", re.I)),
+    ("generic authority", re.compile(r"\b(?:experts? (?:say|argue|believe|note)s?|research shows|observers? note|эксперт(?:ы)? (?:отмеча(?:ет|ют)|счита(?:ет|ют)|говор(?:ит|ят))|исследования показывают|аналитики полагают|как показывает практика)\b", re.I)),
     ("generic conclusion", re.compile(r"\b(?:in conclusion|to sum up|the future looks bright|подводя итог|в заключение стоит отметить|таким образом, можно сделать вывод)\b", re.I)),
     ("restating closer", re.compile(r"\b(?:that(?:'|’)s the real win|that distinction matters|let that sink in|read that again|в этом и заключается главное|именно в этом суть|это и есть главный вывод)\b", re.I)),
     ("staged candor", re.compile(r"\b(?:let(?:'|’)s be honest|real talk|давайте начистоту|будем откровенны)\b", re.I)),
@@ -86,6 +93,17 @@ INLINE_CODE = re.compile(r"(?<!`)(`+)(?!`)[^\r\n]*?(?<!`)\1(?!`)")  # reference 
 BACKTICK_RUN = re.compile(r"`+")
 LINE = re.compile(r"[^\r\n]+(?:\r\n|\r|\n)?|\r\n|\r|\n")
 URL = re.compile(r"https?://[^\s<>\"«»“”„]+")  # quote marks end a link, so quoted links stay quoted
+# Unicode spaces (no-break, narrow no-break, thin, figure) and invisible joiners: a reader sees a
+# space or nothing, so a pattern written with U+0020 must still match. CR and LF stay line ends.
+UNICODE_SPACE = re.compile(r"[^\S\r\n]|[\u200b\u200c\u200d\ufeff]")
+
+
+def fold_spaces(text: str) -> str:
+    """Unicode spaces and invisible joiners become U+0020; offsets and line numbers are kept.
+
+    `Hope\u00a0this helps` and `Hope\u200bthis helps` must not slip past a phrase written with an
+    ordinary space. A zero-width character is a word break to a reader, so it becomes a space."""
+    return UNICODE_SPACE.sub(" ", text)
 
 
 def _mask(value: str) -> str:
@@ -129,6 +147,115 @@ def code_ranges(text: str) -> list[tuple[int, int]]:
     """Offsets of fenced code blocks (fence lines included) and inline code spans."""
     ranges = _fence_ranges(text)
     ranges.extend(_inline_code_spans(_mask_ranges(text, ranges)))
+    return sorted(ranges)
+
+
+LIST_ITEM_START = re.compile(r"( {0,3})(?:[-*+]|\d{1,9}[.)])([ \t]+|$)")
+
+
+def _list_content_indent(body: str) -> int | None:
+    """Content column of the list item this line starts, or None when it starts none.
+
+    A thematic break (`- - -`) is not a list item; one to four spaces after the marker belong to
+    the item's content indent, five or more mean the content starts one column after the marker."""
+    if THEMATIC_BREAK.fullmatch(body):
+        return None
+    match = LIST_ITEM_START.match(body)
+    if not match:
+        return None
+    marker = match.group(0).rstrip(" \t")
+    padding = match.end() - len(marker)
+    return len(marker) + (padding if 1 <= padding <= 4 else 1)
+
+
+def _indented_code_ranges(text: str) -> list[tuple[int, int]]:
+    """Offsets of four-column indented code blocks: a nonblank line indented four columns after
+    tabs are expanded at four-column stops, when only a blank line or the start of the text
+    precedes it. As in CommonMark, an indented line that continues a paragraph is prose.
+
+    An open list item moves the mark to its content indent plus four: `- item`, a blank line and
+    a four-space line is the item's next paragraph, not code, while a six-space line is code
+    inside that item. An item closes at a later line indented less than its content indent, or at
+    a sibling or shallower item marker. A fence inside an item, indented four or more columns,
+    is code until its closing fence or until a nonblank line indented less than the item's
+    content ends the item. Nested containers and lazy continuation lines are approximated rather
+    than parsed."""
+    ranges: list[tuple[int, int]] = []
+    fences = _fence_ranges(text)
+    fence_index = 0
+    offset = 0
+    start = -1
+    code_indent = 4
+    previous_blank = True
+    items: list[tuple[int, int]] = []  # (marker indent, content indent), outermost first
+    item_fence: tuple[str, int, int, int] | None = None  # (char, length, content indent, start)
+    for line in LINE.findall(text):
+        body = line.expandtabs(4).rstrip("\r\n")
+        next_offset = offset + len(line)
+        if item_fence:  # a fence inside a list item, indented past the top-level fence limit
+            char, length, content, fence_start = item_fence
+            stripped = body.lstrip(" ")
+            if stripped and len(body) - len(stripped) < content:
+                ranges.append((fence_start, offset))  # the item ends, and its open fence with it
+                item_fence = None
+                previous_blank = False
+                while items and items[-1][1] > len(body) - len(stripped):
+                    items.pop()
+            else:
+                if (len(body) - len(stripped) < content + 4
+                        and re.fullmatch(re.escape(char) + "{" + str(length) + r",}[ \t]*", stripped)):
+                    ranges.append((fence_start, next_offset))
+                    item_fence = None
+                    previous_blank = False
+                offset = next_offset
+                continue
+        while fence_index < len(fences) and fences[fence_index][1] <= offset:
+            fence_index += 1
+        if fence_index < len(fences) and fences[fence_index][0] <= offset:
+            previous_blank = False  # fenced code is its own block: its lines open no list item
+            offset = next_offset
+            continue
+        if not body.strip():
+            previous_blank = True
+            offset = next_offset
+            continue
+        indent = len(body) - len(body.lstrip(" "))
+        if start >= 0:
+            if indent >= code_indent:
+                previous_blank = False
+                offset = next_offset
+                continue
+            ranges.append((start, offset))
+            start = -1
+        marker = LIST_ITEM_START.match(body)
+        if marker:
+            while items and items[-1][0] >= len(marker.group(1)):
+                items.pop()
+        elif previous_blank:
+            while items and items[-1][1] > indent:
+                items.pop()
+        code_indent = items[-1][1] + 4 if items else 4
+        if previous_blank and indent >= code_indent:
+            start = offset
+            previous_blank = False
+            offset = next_offset
+            continue
+        if items and not marker and indent >= 4 and indent < items[-1][1] + 4:
+            opening = re.match(r"(`{3,}|~{3,})(.*)", body[indent:])
+            if opening and (opening.group(1)[0] != "`" or "`" not in opening.group(2)):
+                item_fence = (opening.group(1)[0], len(opening.group(1)), items[-1][1], offset)
+                offset = next_offset
+                continue
+        if marker:
+            content = _list_content_indent(body)
+            if content is not None:
+                items.append((len(marker.group(1)), content))
+        previous_blank = False
+        offset = next_offset
+    if start >= 0:
+        ranges.append((start, len(text)))
+    if item_fence:
+        ranges.append((item_fence[3], len(text)))
     return sorted(ranges)
 
 
@@ -521,8 +648,9 @@ def _range_lookup(ranges: list[tuple[int, int]]):
 def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
     """Findings as (line, label, excerpt, quoted); quoted matches sit in a quotation."""
     text = path.read_text(encoding="utf-8")
-    scan = strip_code_fences(text)
-    url_scan = mask_code(text, mask_urls=False)
+    indented = _indented_code_ranges(text)  # tabs must expand at four-column stops, so read raw text
+    scan = fold_spaces(_mask_ranges(strip_code_fences(text), indented))
+    url_scan = fold_spaces(_mask_ranges(mask_code(text, mask_urls=False), indented))
     ranges = quoted_ranges(quote_scan(text))  # links stay visible so a quote that closes after a link is found
     in_quote = _range_lookup(ranges)
     newlines = [match.start() for match in re.finditer("\n", text)]  # `scan` and `url_scan` keep every "\n"
@@ -534,7 +662,8 @@ def lint_detailed(path: Path) -> list[tuple[int, str, str, bool]]:
                 excerpt = " ".join(match.group(0).split())
                 quoted = in_quote(match.start(), match.end())
                 detailed.append((line, label, excerpt, quoted))
-    detailed.extend((line, label, excerpt, False) for line, label, excerpt in _structural(scan, newlines))
+    detailed.extend((line, label, excerpt, in_quote(start, end))
+                    for line, label, excerpt, start, end in _structural(scan, newlines))
     detailed.sort(key=lambda item: (item[0], item[1], item[2]))
     return detailed
 
@@ -543,21 +672,29 @@ def lint(path: Path) -> list[tuple[int, str, str]]:
     return [(line, label, excerpt) for line, label, excerpt, _ in lint_detailed(path)]
 
 
-def _structural(scan: str, newlines: list[int]) -> list[tuple[int, str, str]]:
-    findings: list[tuple[int, str, str]] = []
+def _structural(scan: str, newlines: list[int]) -> list[tuple[int, str, str, int, int]]:
+    """Structural findings as (line, label, excerpt, start, end); the offsets let the caller
+    apply the same quotation exemption the phrase patterns get."""
+    findings: list[tuple[int, str, str, int, int]] = []
 
+    offset = 0
     for number, line_text in enumerate(scan.split("\n"), 1):
+        span = (offset, offset + len(line_text))
         if BOLD_LABEL.search(line_text):
-            findings.append((number, "bold-label bullet", line_text.strip()))
+            findings.append((number, "bold-label bullet", line_text.strip(), *span))
         if TITLE_CASE_HEADING.search(line_text):
-            findings.append((number, "title-case heading", line_text.strip()))
+            findings.append((number, "title-case heading", line_text.strip(), *span))
+        offset += len(line_text) + 1
 
     for match in STACKED_SHORT.finditer(scan):
         line = bisect_left(newlines, match.start()) + 1
         excerpt = " / ".join(part.strip() for part in match.group(0).splitlines() if part.strip())
-        findings.append((line, "stacked short-sentence rhythm", excerpt[:220]))
+        findings.append((line, "stacked short-sentence rhythm", excerpt[:220], *match.span()))
 
-    findings.extend(uniform_heading_geometry(scan))
+    for line, label, excerpt in uniform_heading_geometry(scan):
+        start = 0 if line == 1 else newlines[line - 2] + 1
+        end = newlines[line - 1] if line - 1 < len(newlines) else len(scan)
+        findings.append((line, label, excerpt, start, end))
     return findings
 
 
