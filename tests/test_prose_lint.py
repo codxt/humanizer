@@ -784,7 +784,8 @@ class ReviewFindingsProseLintTests(unittest.TestCase):
     def test_residue_phrase_wrapped_across_a_line_break(self):
         for text in ("Hope this\nhelps.\n", "I hope this\nwas helpful.\n",
                      "as an AI\nlanguage model wrote this.\n", "Great\nquestion\n",
-                     "Надеюсь,\nэто поможет.\n", "отличный\nвопрос\n"):
+                     "Надеюсь,\nэто поможет.\n", "Надеюсь, это было\nполезно.\n",
+                     "отличный\nвопрос\n"):
             with self.subTest(text=text):
                 code, out, _ = self.run_cli(text, "--fail-on", "assistant residue")
                 self.assertEqual(code, 1, out)

@@ -54,7 +54,7 @@ from pathlib import Path
 
 
 PATTERNS = [
-    ("assistant residue", re.compile(r"(?<!\w)(?:i\s+hope\s+this\s+(?:helps|was\s+helpful)|hope\s+this\s+helps|great\s+question|as\s+an\s+ai\s+(?:language\s+model|assistant)|надеюсь,?\s+(?:что\s+)?это\s+(?:поможет|было полезно)|отличный\s+вопрос|как\s+языковая\s+модель)(?!\w)", re.I)),
+    ("assistant residue", re.compile(r"(?<!\w)(?:i\s+hope\s+this\s+(?:helps|was\s+helpful)|hope\s+this\s+helps|great\s+question|as\s+an\s+ai\s+(?:language\s+model|assistant)|надеюсь,?\s+(?:что\s+)?это\s+(?:поможет|было\s+полезно)|отличный\s+вопрос|как\s+языковая\s+модель)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"\b(?:let(?:'|’)s dive in|here(?:'|’)s the thing|after careful consideration|i wanted to provide a quick update)\b", re.I)),
     ("russian chatbot residue", re.compile(r"(?<!\w)(?:давайте разбер[её]мся|с радостью помогу)(?!\w)", re.I)),
     ("chatbot residue", re.compile(r"(?<!\w)(?:would you like me to|let me know if you(?:(?:'|’)d| would)? like|is there anything else (?:i can|you(?:(?:'|’)d| would) like)|delete this (?:section|note) before (?:submission|submitting|publishing|publication)|here(?:(?:'|’)s| is) (?:a|the|your) (?:revised|updated|polished|rewritten|improved) (?:version|draft|text)|it(?:(?:'|’)s| is) important to (?:note|remember)|certainly!|you(?:(?:'|’)re| are) absolutely right)(?!\w)", re.I)),
