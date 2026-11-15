@@ -129,7 +129,7 @@ class FidelityCheckTests(unittest.TestCase):
                       changes("We paid Dr. Ivanov 500 rubles.", "We paid Dr. Petrov 500 rubles."))
         self.assertIn(("added", "name", "globex"),
                       changes("Some vendors, e.g. Acme, refused.", "Some vendors, e.g. Globex, refused."))
-        self.assertIn(("added", "name", "сидор"),
+        self.assertIn(("added", "name", "сидоров"),
                       changes("Подписал И. Петров.", "Подписал И. Сидоров."))
 
     def test_business_prefix_applies_to_every_time_unit(self):
@@ -142,7 +142,7 @@ class FidelityCheckTests(unittest.TestCase):
         self.assertIn(("added", "name", "congress"),
                       changes("The U.S. Treasury issued notes.", "The U.S. Congress issued notes."))
         self.assertIn(("added", "name", "sidorov"), changes("Ph.D. Ivanov signed.", "Ph.D. Sidorov signed."))
-        self.assertIn(("added", "name", "сидор"), changes("См. Петров в приложении.", "См. Сидоров в приложении."))
+        self.assertIn(("added", "name", "сидоров"), changes("См. Петров в приложении.", "См. Сидоров в приложении."))
 
     def test_ruble_adjectives(self):
         self.assertIn(("lost", "currency", "RUB"), changes("Рублёвые активы выросли.", "Валютные активы выросли."))
@@ -469,6 +469,169 @@ class FidelityCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, redirect_stderr(io.StringIO()):
             missing = str(Path(directory) / "missing.md")
             self.assertEqual(check.main(["fidelity_check.py", missing, missing]), 2)
+
+
+class ReviewFindingsTests(unittest.TestCase):
+    """Regressions for the 2026-11-15 Grok review of fidelity_check.py."""
+
+    def test_dash_is_a_minus_sign(self):
+        for dash in ("–", "—"):
+            with self.subTest(dash=dash):
+                self.assertEqual(changes(f"Температура {dash}5 °C.", "Температура 5 °C."),
+                                 {("lost", "number", "-5 °C"), ("added", "number", "5 °C")})
+        self.assertEqual(changes("Число (–5) в списке.", "Число (5) в списке."),
+                         {("lost", "number", "-5"), ("added", "number", "5")})
+        self.assertEqual(changes("–5 °C", "5 °C"),
+                         {("lost", "number", "-5 °C"), ("added", "number", "5 °C")})
+        self.assertEqual(check.compare("Pages 10–20.", "Pages 10-20."), [])  # a range, not a sign
+
+    def test_hyphenated_russian_names_match_themselves(self):
+        for text in ("Он сказал: «Где-то рядом» и ушёл.", "Мы убрали Слова-паразиты из текста.",
+                     "Работы купил Петров-Водкин вчера."):
+            with self.subTest(text=text):
+                self.assertEqual(check.compare(text, text), [])
+        self.assertEqual(check.compare("Картину писал Петров-Водкин сам.",
+                                       "Картину писал сам Петров-Водкин."), [])
+        self.assertEqual(check.compare("Работы купил Петров-Водкин вчера.",
+                                       "Работы купил Петрова-Водкина вчера."), [])
+
+    def test_unicode_spaces_do_not_hide_qualifiers(self):
+        self.assertEqual(changes("Cancel at\u00a0least 24 hours before renewal.",
+                                 "Cancel 24 hours before renewal."),
+                         {("lost", "qualifier", "at least")})
+        self.assertEqual(changes("Cancel at\u2009least 24 hours before renewal.",
+                                 "Cancel 24 hours before renewal."),
+                         {("lost", "qualifier", "at least")})
+        self.assertEqual(changes("Ответ не\u00a0позднее 3 дней.", "Ответ не\u00a0ранее 3 дней."),
+                         {("lost", "qualifier", "не позднее"), ("added", "qualifier", "не ранее")})
+        self.assertEqual(changes("Pay up\u00a0to 10 days late.", "Pay 10 days late."),
+                         {("lost", "qualifier", "up to")})
+
+    def test_comma_rule_is_decided_per_sentence(self):
+        russian = "Примечание. " * 20
+        self.assertEqual(check.compare("The fee is 1,500 dollars.",
+                                       "The fee is 1,500 dollars.\n\n" + russian), [])
+        self.assertEqual(check.compare('The fee is "1,500" dollars.',
+                                       'The fee is "1,500" dollars.\n\n' + russian), [])
+        self.assertTrue(changes("Вес 1,500 кг.\n\nThe fee is 1,500 dollars.",
+                                "Вес 1500 кг.\n\nThe fee is 1,500 dollars."))
+
+    def test_russian_magnitude_and_hour_stems_are_closed(self):
+        self.assertEqual(changes("Прошло 2 тысячелетия.", "Прошло 2 тысячи."),
+                         {("lost", "number", "2"), ("added", "number", "2 thousand")})
+        self.assertEqual(check.compare("Договор включает 2 части и приложение.",
+                                       "Договор включает 2 раздела и приложение."), [])
+        self.assertEqual(check.compare("Договор включает 2 частных пункта.",
+                                       "Договор включает 2 пункта."), [])
+        self.assertEqual(check.compare("В зале было 5 миллионеров.", "В зале было 5 гостей."), [])
+        self.assertEqual(check.compare("Цена 2 миллиона рублей.", "Цена 2 млн рублей."), [])
+        self.assertEqual(changes("Ждали 1 час.", "Ждали 5 часов."),
+                         {("lost", "number", "1 hour"), ("added", "number", "5 hour")})
+
+    def test_russian_names_are_compared_as_whole_tokens(self):
+        self.assertEqual(changes("Договор подписал Александр в офисе.", "Договор подписал Алексей в офисе."),
+                         {("lost", "name", "александр"), ("added", "name", "алексей")})
+        self.assertEqual(changes("Договор подписал Владимир.", "Договор подписал Владислав."),
+                         {("lost", "name", "владимир"), ("added", "name", "владислав")})
+        self.assertEqual(changes("Пришёл Николай.", "Пришёл Николаев."),
+                         {("lost", "name", "николай"), ("added", "name", "николаев")})
+        self.assertEqual(changes("Пришла Екатерина.", "Пришла в Екатеринбург."),
+                         {("lost", "name", "екатерина"), ("added", "name", "екатеринбург")})
+        # a lowercase inflected common noun is not the person
+        self.assertEqual(changes("Текст правил Роман вечером.", "Текст стал романом вечером."),
+                         {("lost", "name", "роман")})
+        # a case ending is still the same name
+        self.assertEqual(check.compare("Решение принял Петров.", "Решение принято Петровым."), [])
+        self.assertEqual(check.compare("Решение принял Пётр.", "Решение принято Петром."), [])
+
+    def test_march_forms_are_closed(self):
+        self.assertEqual(changes("Мартын согласен с условиями сделки.",
+                                 "Все согласны в марте с условиями сделки."),
+                         {("added", "date word", "march")})
+        self.assertEqual(changes("Встреча в марте.", "Встреча в апреле."),
+                         {("lost", "date word", "march"), ("added", "date word", "april")})
+
+    def test_may_whole_word_forms(self):
+        self.assertIn(("lost", "date word", "may"), changes("Перенесём срок к маю.", "Перенесём срок."))
+        self.assertIn(("lost", "date word", "may"), changes("Работы закончатся маем.", "Работы закончатся."))
+        words = check._lexicon_counts(check._normalize_words("Он майор и маяк."), check.DATE_WORDS)
+        self.assertEqual(words.get("may", 0), 0)
+
+    def test_capitalized_month_form_without_a_date_is_a_name(self):
+        found = changes("Договор подписал Август.", "Договор подписал Иван.")
+        self.assertIn(("lost", "name", "август"), found)
+        self.assertNotIn(("lost", "date word", "august"), found)
+        self.assertEqual(changes("Марта пришла.", "Иван пришёл."), {("lost", "name", "марта")})
+        self.assertEqual(check.compare("Договор подписал Август.", "Договор подписал Августом."), [])
+        # a day number, a year or a preposition of time still marks a date
+        self.assertEqual(changes("Встреча 5 Августа.", "Встреча."),
+                         {("lost", "date word", "august"), ("lost", "number", "5")})
+        self.assertIn(("lost", "date word", "august"), changes("Август 2026 был тёплым.", "Год был тёплым."))
+        self.assertIn(("lost", "date word", "august"), changes("Заседание перенесли на Август.", "Заседание перенесли."))
+        self.assertNotIn(("lost", "name", "август"),
+                         changes("Август 2026 был тёплым.", "Год был тёплым."))
+
+    def test_second_person_modals(self):
+        self.assertEqual(changes("Вы будете уведомлены за 5 дней.", "Уведомим за 5 дней."),
+                         {("lost", "modality", "будет")})
+        self.assertEqual(changes("Ты можешь отменить заявку сегодня.", "Ты отменишь заявку сегодня."),
+                         {("lost", "modality", "может")})
+
+    def test_russian_prefix_negation(self):
+        self.assertEqual(changes("Условие незаконно для сторон.", "Условие законно для сторон."),
+                         {("lost", "negation", "не-")})
+        self.assertEqual(changes("Это недопустимо.", "Это допустимо."),
+                         {("lost", "negation", "не-")})
+        self.assertEqual(check.compare("Над нами небо.", "Над нами облако."), [])  # not every «не…»
+
+    def test_link_parentheses_are_part_of_the_link(self):
+        self.assertEqual(
+            changes("См. https://ru.wikipedia.org/wiki/Альберт_(имя) далее.",
+                    "См. https://ru.wikipedia.org/wiki/Альберт_(князь) далее."),
+            {("lost", "link", "https://ru.wikipedia.org/wiki/Альберт_(имя)"),
+             ("added", "link", "https://ru.wikipedia.org/wiki/Альберт_(князь)")})
+        self.assertEqual(changes("See https://example.com/a_(old) now.",
+                                 "See https://example.com/a_(new) now."),
+                         {("lost", "link", "https://example.com/a_(old)"),
+                          ("added", "link", "https://example.com/a_(new)")})
+        self.assertEqual(changes("See (https://example.com/a) now.", "See (https://example.com/b) now."),
+                         {("lost", "link", "https://example.com/a"),
+                          ("added", "link", "https://example.com/b")})
+
+    def test_year_abbreviation(self):
+        self.assertEqual(check.compare("Срок до 2024 года.", "Срок до 2024 г."), [])
+        self.assertEqual(check.compare("Вес 5 г.", "Вес 5."), [])  # grams are not a year unit
+
+    def test_single_glued_b_is_not_billion(self):
+        self.assertEqual(check.compare("See question 5b in the annex.",
+                                       "See question 5c in the annex."), [])
+        self.assertEqual(check.compare("We spent 5 bn.", "We spent 5 billion."), [])
+
+    def test_dash_after_a_word_keeps_a_name(self):
+        self.assertEqual(changes("Встретил друга — Анну вчера вечером.",
+                                 "Встретил друга — Ольгу вчера вечером."),
+                         {("lost", "name", "анну"), ("added", "name", "ольгу")})
+        # a dash that opens a line is dialogue: the word after it still opens a sentence
+        self.assertEqual(changes("— Анна пришла. Вчера.", "— Ольга пришла. Вчера."), set())
+        self.assertEqual(changes("Он ушёл.\n— Анна пришла.", "Он ушёл.\n— Ольга пришла."), set())
+
+    def test_lowercase_month_names(self):
+        self.assertEqual(changes("Send it in january or later.", "Send it in february or later."),
+                         {("lost", "date word", "january"), ("added", "date word", "february")})
+        self.assertEqual(check.compare("Send it in January.", "Send it in january."), [])
+        self.assertEqual(check.compare("The protest march was peaceful.", "The protest walk was peaceful."), [])
+        self.assertIn(("lost", "date word", "march"), changes("Due in March.", "Due soon."))
+
+    def test_name_findings_report_real_counts(self):
+        three = "Встречал Петров, Петров и Петров."
+        self.assertEqual([(item["source"], item["edit"]) for item in check.compare(three, "Все ушли.")],
+                         [(3, 0)])
+        self.assertEqual([(item["source"], item["edit"]) for item in check.compare("Все ушли.", three)],
+                         [(0, 3)])
+        # inflected mentions of the same name count too
+        self.assertEqual([(item["source"], item["edit"])
+                          for item in check.compare("Петров и Петровым подписан акт.", "Акт подписан.")],
+                         [(2, 0)])
 
 
 if __name__ == "__main__":
