@@ -71,6 +71,18 @@ A finding asks for a sentence-level comparison; removing a stacked hedge or a fo
 
 The included manual regression cases in `tests/fidelity_cases.json` cover semantic edge cases in the currently supported languages. Passing a style lint or model check does not guarantee legal correctness or authenticity.
 
+## Human control
+
+`scripts/human_control.py` runs the linter over human writing from before ChatGPT: Wikipedia revisions saved before 30 November 2022, pinned by revision id in `tests/human_control.json`. It reports each label's matches per 1,000 words by language and exits 1 if a blocking label (`assistant residue`, `chatbot artifact`) fires outside a quotation in that human text. Run it before making a label blocking or adding a pattern. The rates are observations for this sample of rendered encyclopedic paragraphs; link destinations, lists and headings are dropped (anchor text stays; blockquotes stay blockquotes), so URL and structural labels are barely exercised, and words are counted as Unicode `\w+` runs. The script fetches each revision once through the Wikipedia API and caches its plain text in `~/.cache/humanizer-human-control`; the CC BY-SA article text never enters this repository. It needs network access, so CI does not run it; the unit tests cover it offline.
+
+```bash
+python3 -S scripts/human_control.py
+python3 -S scripts/human_control.py --offline
+python3 -S scripts/human_control.py --resolve en.wikipedia.org "Tea"
+```
+
+Humanizer edits for the reader, not for AI detectors, and does not claim that an edited draft will pass one. The detector-bypass prompt reviewed on 18 November 2026 tells a model to assemble text only from copied human sentences, apart from gaps the author fills in, which passes off other people's writing and cannot say what the author means; it was not adopted. See `references/research.md` → Review of 18 November 2026.
+
 ## Research and references
 
 The [research and source references](references/research.md) document the Wikipedia editorial guides, open-source skills, and vendor publications reviewed for Humanizer, including how each was used and its evidence limits. These sources inform the editorial method; they do not establish AI authorship or guarantee semantic fidelity.
