@@ -283,6 +283,21 @@ class NetworkGuardTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 4)
         self.assertIn("IncompleteRead", err.getvalue())
 
+    def test_body_cut_mid_character_is_retried(self):
+        class Cut(FakeResponse):
+            def __init__(self):
+                io.BytesIO.__init__(self, '{"query": "Ч'.encode("utf-8")[:-1])
+                self.headers = {}
+
+        payloads = [Cut(), meta(5, "2022-11-01T00:00:00Z")]
+
+        def fake(request, timeout=None):
+            item = payloads.pop(0)
+            return item if isinstance(item, FakeResponse) else FakeResponse(item)
+
+        with mock.patch.object(control.urllib.request, "urlopen", side_effect=fake):
+            self.assertEqual(control.resolve("en.wikipedia.org", "Sample")["revid"], 5)
+
     def test_empty_pages_exits_2_without_traceback(self):
         with responses({"query": {"pages": {}}}), redirect_stderr(io.StringIO()) as err, \
                 redirect_stdout(io.StringIO()):

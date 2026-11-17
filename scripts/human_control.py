@@ -194,7 +194,7 @@ def _api(host: str, **params) -> dict:
                 raise
             time.sleep(_retry_after(exc.headers.get("Retry-After"), attempt))
             continue
-        except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+        except (OSError, http.client.HTTPException, ValueError) as exc:  # JSON and UTF-8 decode errors
             # a dropped connection or truncated body is a network failure (exit 2), not a lint result
             if last:
                 raise OSError(f"{host}: {type(exc).__name__}: {exc}") from exc
