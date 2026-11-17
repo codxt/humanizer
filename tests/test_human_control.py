@@ -35,6 +35,16 @@ class ExtractProseTests(unittest.TestCase):
         self.assertEqual(control.extract_prose(html),
                          "Bread is a staple food.\n\nIt is baked in an oven.\n")
 
+    def test_blockquote_stays_quoted_through_measurement(self):
+        html = "<blockquote><p>Hope this helps.</p></blockquote><p>Tea is a drink.</p>"
+        prose = control.extract_prose(html)
+        self.assertEqual(prose, "> Hope this helps.\n\nTea is a drink.\n")
+        with tempfile.TemporaryDirectory() as directory:
+            control.store(Path(directory), entry(), prose)
+            code = control.measure([entry()], Path(directory), offline=True,
+                                   fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+        self.assertEqual(code, 0)
+
     def test_strips_russian_footnote_marks_and_entities(self):
         html = "<p>Чай&nbsp;&mdash; напиток[нет АИ].</p>"
         self.assertEqual(control.extract_prose(html), "Чай — напиток.\n")
@@ -296,13 +306,30 @@ class CacheIntegrityTests(unittest.TestCase):
                                        fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
             self.assertEqual(code, 1)
 
-    def test_interleaved_writers_leave_a_usable_cache(self):
+    def test_two_valid_renders_are_ambiguous(self):
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)
-            control.store(cache, entry(), "Render A.\n")   # same revision, two renders
-            control.store(cache, entry(), "Render B.\n")
-            self.assertIn(control.load(cache, entry()), {"Render A.\n", "Render B.\n"})
-            self.measure_offline(cache)
+            control.store(cache, entry(), "Clean render.\n")
+            control.store(cache, entry(), "The host said: hope this helps.\n")
+            with self.assertRaises(ValueError):
+                self.measure_offline(cache)
+
+    def test_concurrent_render_during_fetch_is_not_silently_chosen(self):
+        parsed = {"parse": {"revid": 1, "text": {"*": "<p>The host said: hope this helps.</p>"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            real_fetch = control.fetch_revision
+
+            def fetch_while_another_writer_stores(item):
+                control.store(cache, item, "Clean render.\n")
+                return real_fetch(item)
+
+            with mock.patch.object(control.time, "sleep"), \
+                    mock.patch.object(control, "fetch_revision", side_effect=fetch_while_another_writer_stores), \
+                    responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
+                with self.assertRaises(ValueError):
+                    control.measure([entry()], cache, offline=False,
+                                    fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
 
     def test_file_replaced_after_verification_is_not_linted(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -56,7 +56,7 @@ The linked articles and upstream projects remain on their respective websites. T
 
 - **Editorial candidates:** Identify clusters of repeated scaffolding, overclaiming, canned transitions, decorative contrast, and unnecessary narration while preserving meaningful structure and native usage. See [patterns.md](patterns.md) and [language.md](language.md).
 - **Fidelity controls:** Compare source and edit in both directions, protecting actors, commitments, status, conditionality, deadlines, attribution, uncertainty, and stance. See [work-fidelity.md](work-fidelity.md).
-- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The human control (added 18 November 2026) measures how often each lint label fires on human writing from before ChatGPT. The repository includes **218 automated tests** (85 for the linter, 96 for the fidelity check, 37 for the human control) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
+- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The human control (added 18 November 2026) measures how often each lint label fires on human writing from before ChatGPT. The repository includes **221 automated tests** (85 for the linter, 96 for the fidelity check, 40 for the human control) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
 
 ## Use and attribution
 
@@ -147,7 +147,7 @@ Lowering scores from AI detectors or plagiarism systems; blanket bans on adverbs
 
 ### Measurement
 
-Run on 18 November 2026 over 101,316 English and 37,451 Russian words (Unicode `\w+` runs) of rendered paragraph text. A pinned revision fixes the article source; templates are rendered as of the fetch. A second fetch through the reviewed extractor gave the same counts.
+Run on 18 November 2026 over 101,316 English and 37,451 Russian words (Unicode `\w+` runs) of rendered paragraph text. A pinned revision fixes the article source; templates are rendered as of the fetch. Counts include matches inside quotations; only the blocking row excludes them. Later fetches through the reviewed extractor, which keeps blockquotes quoted, gave the same counts.
 
 | Label | English per 1,000 words | Russian per 1,000 words |
 |---|---|---|

@@ -18,7 +18,7 @@ again; the linter reads a private copy of the verified bytes. It then runs
 An unquoted match on a blocking label (`assistant residue` and `chatbot artifact` by default)
 in this corpus is a false positive in human prose: exit 1. Every other label is a review candidate,
 and its rate here is an observation for this sample of rendered encyclopedic paragraphs, not a
-baseline for other genres. Paragraph extraction drops links, lists and headings, so URL and
+baseline for other genres. Paragraph extraction drops link destinations, lists and headings, so URL and
 structural labels are barely exercised. A match rate is not an authorship test. Words are
 Unicode `\\w+` runs. A pinned revision fixes the article text; templates are rendered as of the fetch.
 
@@ -70,6 +70,8 @@ class ProseExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.skip_depth = 0
         self.in_paragraph = False
+        self.quote_depth = 0
+        self._paragraph_quoted = False
         self.paragraphs: list[str] = []
         self._current: list[str] = []
 
@@ -78,8 +80,11 @@ class ProseExtractor(HTMLParser):
             self.skip_depth += 1
         elif self.skip_depth:
             return
+        elif tag == "blockquote":
+            self.quote_depth += 1
         elif tag == "p":
             self.in_paragraph = True
+            self._paragraph_quoted = bool(self.quote_depth)
             self._current = []
         elif tag == "br" and self.in_paragraph:
             self._current.append(" ")
@@ -92,11 +97,13 @@ class ProseExtractor(HTMLParser):
         if tag in self.SKIP:
             if self.skip_depth:
                 self.skip_depth -= 1
+        elif tag == "blockquote" and not self.skip_depth:
+            self.quote_depth = max(0, self.quote_depth - 1)
         elif tag == "p" and self.in_paragraph and not self.skip_depth:
             self.in_paragraph = False
             text = " ".join("".join(self._current).split())
-            if text:
-                self.paragraphs.append(text)
+            if text:  # a blockquote stays a Markdown blockquote, so the linter's exemption applies
+                self.paragraphs.append(("> " if self._paragraph_quoted else "") + text)
 
     def handle_data(self, data: str) -> None:
         if self.in_paragraph and not self.skip_depth:
@@ -290,7 +297,9 @@ def store(cache: Path, entry: dict, text: str) -> Path:
 
 
 def load(cache: Path, entry: dict) -> str | None:
-    """Text of a cached copy whose bytes match the checksum in its name, otherwise None."""
+    """The one cached render whose bytes match the checksum in its name, or None. Two valid
+    renders of one revision are ambiguous: the result could depend on which is read."""
+    valid: list[str] = []
     for path in sorted(cache_dir(cache).glob(f"{_stem(entry)}.*.md")):
         name_digest = path.name[len(_stem(entry)) + 1:-len(".md")]
         try:
@@ -299,10 +308,13 @@ def load(cache: Path, entry: dict) -> str | None:
             continue
         if name_digest == _digest(data):
             try:
-                return data.decode("utf-8")
+                valid.append(data.decode("utf-8"))
             except UnicodeError:
                 continue
-    return None
+    if len(valid) > 1:
+        raise ValueError(f"{cache_dir(cache) / _stem(entry)}: {len(valid)} different cached renders; "
+                         "delete them and fetch again")
+    return valid[0] if valid else None
 
 
 def _lint_text(text: str) -> list[tuple[int, str, str, bool]]:
@@ -326,8 +338,10 @@ def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str
             if offline:
                 raise FileNotFoundError(f"{cache_dir(cache) / _stem(entry)}: not cached or incomplete; "
                                         "run once without --offline")
-            text = fetch_revision(entry)
-            store(cache, entry, text)
+            store(cache, entry, fetch_revision(entry))
+            text = load(cache, entry)  # measure the one authoritative render, as offline runs will
+            if text is None:
+                raise ValueError(f"{entry['title']} ({entry['revid']}): cache write did not verify")
         count = word_count(text)
         if not count:
             raise ValueError(f"{entry['title']} ({entry['revid']}): cached text has no words")
