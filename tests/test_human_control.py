@@ -75,6 +75,10 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 control.check_entry(entry(**bad))
 
+    def test_rejects_impossible_calendar_date(self):
+        with self.assertRaises(ValueError):
+            control.check_entry(entry(timestamp="2022-02-31T00:00:00Z"))
+
     def test_rejects_unknown_host_and_missing_field(self):
         with self.assertRaises(ValueError):
             control.check_entry(entry(host="example.org"))
@@ -91,7 +95,7 @@ class MeasureTests(unittest.TestCase):
             entries = []
             for number, (host, text) in enumerate(texts, 1):
                 item = entry(host=host, revid=number, title=f"T{number}")
-                control.cache_path(cache, item).write_text(text, encoding="utf-8")
+                control.store(control.cache_path(cache, item), text)
                 entries.append(item)
             out = io.StringIO()
             code = control.measure(entries, cache, offline=True,
@@ -186,7 +190,7 @@ class NetworkGuardTests(unittest.TestCase):
     def test_cached_file_without_words_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
             item = entry()
-            control.cache_path(Path(directory), item).write_text("\n", encoding="utf-8")
+            control.store(control.cache_path(Path(directory), item), "\n")
             with self.assertRaises(ValueError):
                 control.measure([item], Path(directory), offline=True,
                                 fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
@@ -209,7 +213,7 @@ class NetworkGuardTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     control.measure([entry()], Path(directory), offline=False,
                                     fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
-            self.assertEqual(list(Path(directory).iterdir()), [])
+            self.assertEqual(list(Path(directory).rglob("*")), [])
 
     def test_fetch_writes_cache_and_measures(self):
         parsed = {"parse": {"revid": 1, "text": {"*": "<p>Tea is a drink.</p>"}}}
@@ -218,7 +222,8 @@ class NetworkGuardTests(unittest.TestCase):
                 code = control.measure([entry()], Path(directory), offline=False,
                                        fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
             self.assertEqual(code, 0)
-            self.assertEqual([p.name for p in Path(directory).iterdir()], ["en-1.md"])
+            self.assertEqual(sorted(p.name for p in (Path(directory) / "v2").iterdir()),
+                             ["en-1.md", "en-1.md.sha256"])
 
     def test_api_error_is_reported_not_retried(self):
         with responses({"error": {"code": "nosuchrevid", "info": "no revision"}}) as urlopen:
@@ -254,6 +259,77 @@ class NetworkGuardTests(unittest.TestCase):
         self.assertIn("rvstart=2022-11-29T23%3A59%3A59Z", urlopen.call_args.args[0].full_url)
         with responses(meta(6, control.CUTOFF)), self.assertRaises(ValueError):
             control.resolve("en.wikipedia.org", "Sample")
+
+
+class CacheIntegrityTests(unittest.TestCase):
+    def measure_offline(self, cache):
+        return control.measure([entry()], cache, offline=True,
+                               fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+
+    def test_truncated_text_with_stale_record_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = control.cache_path(Path(directory), entry())
+            control.store(path, "Opening paragraph.\n\nThe host said: hope this helps.\n")
+            path.write_text("Opening paragraph.\n", encoding="utf-8")  # interrupted rewrite
+            self.assertIsNone(control.load(path))
+            with self.assertRaises(FileNotFoundError):
+                self.measure_offline(Path(directory))
+
+    def test_old_format_file_without_record_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "en-1.md").write_text("Opening paragraph.\n", encoding="utf-8")
+            path = control.cache_path(Path(directory), entry())
+            path.parent.mkdir()
+            path.write_text("Opening paragraph.\n", encoding="utf-8")
+            with self.assertRaises(FileNotFoundError):
+                self.measure_offline(Path(directory))
+
+    def test_incomplete_cache_is_fetched_again_online(self):
+        parsed = {"parse": {"revid": 1, "text": {"*": "<p>The host said: hope this helps.</p>"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = control.cache_path(Path(directory), entry())
+            path.parent.mkdir()
+            path.write_text("Opening.\n", encoding="utf-8")
+            with mock.patch.object(control.time, "sleep"), responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
+                code = control.measure([entry()], Path(directory), offline=False,
+                                       fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+            self.assertEqual(code, 1)
+
+    def test_each_writer_uses_its_own_temporary_file(self):
+        sources = []
+        real_replace = control.os.replace
+
+        def spy(source, target):
+            sources.append(source)
+            real_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(control.os, "replace", side_effect=spy):
+            path = Path(directory) / "v2" / "en-1.md"
+            control._write_atomic(path, b"first")
+            control._write_atomic(path, b"second")
+            self.assertEqual(path.read_bytes(), b"second")
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["en-1.md"])
+        self.assertEqual(len(set(sources)), 2)
+
+
+class RetryAfterTests(unittest.TestCase):
+    NOW = control.datetime(2026, 11, 18, 12, 0, 0, tzinfo=control.timezone.utc)
+
+    def test_delta_seconds_within_budget(self):
+        self.assertEqual(control._retry_after("60", 0, now=self.NOW), 60.0)
+
+    def test_http_date(self):
+        self.assertEqual(control._retry_after("Wed, 18 Nov 2026 12:01:00 GMT", 0, now=self.NOW), 60.0)
+
+    def test_delay_beyond_budget_stops_instead_of_retrying_early(self):
+        for value in ("180", "Wed, 18 Nov 2026 12:03:00 GMT"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                control._retry_after(value, 0, now=self.NOW)
+
+    def test_missing_or_unparseable_value_backs_off(self):
+        self.assertEqual(control._retry_after(None, 1, now=self.NOW), 20.0)
+        self.assertEqual(control._retry_after("soon", 0, now=self.NOW), 10.0)
 
 
 if __name__ == "__main__":

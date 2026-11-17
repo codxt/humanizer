@@ -9,7 +9,8 @@ The manifest (default `tests/human_control.json`) pins Wikipedia revisions saved
 ChatGPT's public release on 30 November 2022, so every word in them was written by people.
 The script fetches each pinned revision once through the MediaWiki API, keeps only paragraph
 prose (no tables, lists, captions, footnote marks or formulas), and caches it outside the
-repository: the article text is CC BY-SA and is never committed here. It then runs
+repository: the article text is CC BY-SA and is never committed here. A cached file counts
+only when its `.sha256` completion record matches, so a partial write is fetched again. It then runs
 `prose_lint.py` over every article and reports each label's matches per 1,000 words, by language.
 
 An unquoted match on a blocking label (`assistant residue` and `chatbot artifact` by default)
@@ -29,7 +30,10 @@ revision saved after the cutoff, network failure).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import os
+import tempfile
 import json
 import re
 import sys
@@ -38,6 +42,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -127,17 +133,35 @@ def check_entry(entry: dict) -> None:
     if isinstance(revid, bool) or not isinstance(revid, int) or revid <= 0:
         raise ValueError(f"{entry['title']}: revid must be a positive integer, not {revid!r}")
     stamp = entry["timestamp"]
-    if not isinstance(stamp, str) or not TIMESTAMP.fullmatch(stamp):
-        raise ValueError(f"{entry['title']}: timestamp {stamp!r} is not YYYY-MM-DDTHH:MM:SSZ")
+    try:
+        if not isinstance(stamp, str) or not TIMESTAMP.fullmatch(stamp):
+            raise ValueError
+        datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")  # rejects impossible dates such as 02-31
+    except ValueError:
+        raise ValueError(f"{entry['title']}: timestamp {stamp!r} is not a valid YYYY-MM-DDTHH:MM:SSZ") from None
     if not stamp < CUTOFF:
         raise ValueError(f"{entry['title']} revision {revid} was saved at {stamp}, not before {CUTOFF}")
 
 
-def _retry_after(value: str | None, attempt: int) -> float:
-    try:
-        return min(float(value), MAX_RETRY_WAIT) if value else 10.0 * (attempt + 1)
-    except ValueError:
+def _retry_after(value: str | None, attempt: int, *, now: datetime | None = None) -> float:
+    """Seconds to wait before a retry. Retry-After may be delta-seconds or an HTTP date
+    (RFC 9110 10.2.3); a delay beyond MAX_RETRY_WAIT stops the run instead of retrying early."""
+    if not value:
         return 10.0 * (attempt + 1)
+    value = value.strip()
+    if value.isdigit():
+        delay = float(value)
+    else:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return 10.0 * (attempt + 1)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        delay = max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
+    if delay > MAX_RETRY_WAIT:
+        raise ValueError(f"server asks to wait {delay:.0f} s, more than {MAX_RETRY_WAIT} s; try later")
+    return delay
 
 
 def _api(host: str, **params) -> dict:
@@ -226,16 +250,49 @@ def resolve(host: str, title: str) -> dict:
     return entry
 
 
+CACHE_FORMAT = "v2"  # files from earlier formats carry no completion record and are ignored
+
+
 def cache_path(cache: Path, entry: dict) -> Path:
-    return cache / f"{HOSTS[entry['host']]}-{entry['revid']}.md"
+    return cache / CACHE_FORMAT / f"{HOSTS[entry['host']]}-{entry['revid']}.md"
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    """Publish the cache file only once it is complete, so an interrupted fetch leaves nothing."""
+def _record_path(path: Path) -> Path:
+    return path.with_name(path.name + ".sha256")
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write through a temporary file unique to this writer, then rename it into place."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(text, encoding="utf-8")
-    temporary.replace(path)
+    handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+        os.replace(temporary, path)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def store(path: Path, text: str) -> None:
+    """Publish the text, then its completion record; a reader trusts the text only if they match."""
+    data = text.encode("utf-8")
+    _write_atomic(path, data)
+    _write_atomic(_record_path(path), (_digest(data) + "\n").encode("ascii"))
+
+
+def load(path: Path) -> str | None:
+    """The cached text if it is complete (its record matches), otherwise None."""
+    try:
+        data = path.read_bytes()
+        record = _record_path(path).read_text(encoding="ascii").strip()
+    except (FileNotFoundError, UnicodeError):
+        return None
+    return data.decode("utf-8") if record == _digest(data) else None
 
 
 def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str], out=sys.stdout) -> int:
@@ -247,11 +304,15 @@ def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str
     for entry in entries:
         check_entry(entry)
         path = cache_path(cache, entry)
-        if not path.is_file():
+        text = load(path)
+        if text is None:
             if offline:
-                raise FileNotFoundError(f"{path}: not cached; run once without --offline")
-            _write_atomic(path, fetch_revision(entry))
-        count = word_count(path.read_text(encoding="utf-8"))
+                raise FileNotFoundError(f"{path}: not cached or incomplete; run once without --offline")
+            store(path, fetch_revision(entry))
+            text = load(path)
+            if text is None:
+                raise ValueError(f"{path}: cache write did not verify; run again")
+        count = word_count(text)
         if not count:
             raise ValueError(f"{path}: cached text has no words; delete it and fetch again")
         language = HOSTS[entry["host"]]
