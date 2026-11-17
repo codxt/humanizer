@@ -1,0 +1,216 @@
+{
+ "about": "Wikipedia revisions saved before ChatGPT's public release (30 November 2022), used as human-written control text for scripts/human_control.py. Only identifiers are stored; the CC BY-SA article text is fetched and cached outside the repository.",
+ "cutoff": "2022-11-30T00:00:00Z",
+ "revisions": [
+  {
+   "host": "en.wikipedia.org",
+   "title": "Annual report",
+   "revid": 1112395216,
+   "timestamp": "2022-09-26T04:07:20Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Arbitration",
+   "revid": 1116967601,
+   "timestamp": "2022-10-19T07:34:00Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Bicycle",
+   "revid": 1123740799,
+   "timestamp": "2022-11-25T11:53:04Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Bread",
+   "revid": 1124386370,
+   "timestamp": "2022-11-28T17:24:58Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Contract",
+   "revid": 1123603042,
+   "timestamp": "2022-11-24T16:50:10Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Customer service",
+   "revid": 1118074893,
+   "timestamp": "2022-10-25T02:05:46Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Due diligence",
+   "revid": 1106221520,
+   "timestamp": "2022-08-23T18:24:31Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Email",
+   "revid": 1118945323,
+   "timestamp": "2022-10-29T21:44:52Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Inflation",
+   "revid": 1122605464,
+   "timestamp": "2022-11-18T13:15:31Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Kitchen",
+   "revid": 1117733638,
+   "timestamp": "2022-10-23T08:34:52Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Leadership",
+   "revid": 1124108608,
+   "timestamp": "2022-11-27T10:54:10Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Letter (message)",
+   "revid": 1121583546,
+   "timestamp": "2022-11-13T02:02:55Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Marketing",
+   "revid": 1123709611,
+   "timestamp": "2022-11-25T07:10:28Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Negotiation",
+   "revid": 1123625131,
+   "timestamp": "2022-11-24T19:26:39Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Project management",
+   "revid": 1123565614,
+   "timestamp": "2022-11-24T12:06:06Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Public relations",
+   "revid": 1123667359,
+   "timestamp": "2022-11-25T00:43:51Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Real estate",
+   "revid": 1120058347,
+   "timestamp": "2022-11-04T22:09:43Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Software testing",
+   "revid": 1120745519,
+   "timestamp": "2022-11-08T16:09:45Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Stoicism",
+   "revid": 1124388604,
+   "timestamp": "2022-11-28T17:39:23Z"
+  },
+  {
+   "host": "en.wikipedia.org",
+   "title": "Tea",
+   "revid": 1122757665,
+   "timestamp": "2022-11-19T14:38:19Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Аудит",
+   "revid": 124273282,
+   "timestamp": "2022-07-24T09:25:10Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Бухгалтерский учёт",
+   "revid": 125685309,
+   "timestamp": "2022-09-25T07:35:34Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Велосипед",
+   "revid": 126855003,
+   "timestamp": "2022-11-24T19:23:49Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Договор",
+   "revid": 125149564,
+   "timestamp": "2022-08-29T06:04:20Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Инфляция",
+   "revid": 126397264,
+   "timestamp": "2022-11-01T14:22:36Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Лидерство",
+   "revid": 126106485,
+   "timestamp": "2022-10-17T07:35:24Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Маркетинг",
+   "revid": 126568237,
+   "timestamp": "2022-11-10T07:46:25Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Недвижимость",
+   "revid": 125712717,
+   "timestamp": "2022-09-26T15:01:32Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Переговоры",
+   "revid": 124262585,
+   "timestamp": "2022-07-23T19:51:45Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Стоицизм",
+   "revid": 126072401,
+   "timestamp": "2022-10-15T12:50:09Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Управление проектами",
+   "revid": 124944412,
+   "timestamp": "2022-08-19T18:49:35Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Футбол",
+   "revid": 125134603,
+   "timestamp": "2022-08-28T10:45:12Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Хлеб",
+   "revid": 126818687,
+   "timestamp": "2022-11-23T06:20:54Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Чай",
+   "revid": 126276729,
+   "timestamp": "2022-10-26T04:15:22Z"
+  },
+  {
+   "host": "ru.wikipedia.org",
+   "title": "Электронная почта",
+   "revid": 126734152,
+   "timestamp": "2022-11-18T19:17:45Z"
+  }
+ ]
+}

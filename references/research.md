@@ -56,7 +56,7 @@ The linked articles and upstream projects remain on their respective websites. T
 
 - **Editorial candidates:** Identify clusters of repeated scaffolding, overclaiming, canned transitions, decorative contrast, and unnecessary narration while preserving meaningful structure and native usage. See [patterns.md](patterns.md) and [language.md](language.md).
 - **Fidelity controls:** Compare source and edit in both directions, protecting actors, commitments, status, conditionality, deadlines, attribution, uncertainty, and stance. See [work-fidelity.md](work-fidelity.md).
-- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The repository includes **181 automated tests** (85 for the linter, 96 for the fidelity check) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
+- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The human control (added 18 November 2026) measures how often each lint label fires on human writing from before ChatGPT. The repository includes **191 automated tests** (85 for the linter, 96 for the fidelity check, 10 for the human control) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
 
 ## Use and attribution
 
@@ -131,3 +131,36 @@ Human-control corpus and self-scan budgets; dated vocabulary by model generation
 ### Not adopted
 
 Lowering scores from AI detectors or plagiarism systems; blanket bans on adverbs, passive voice, or dashes; numeric self-scores; deliberately added roughness or errors; code or text from projects without a compatible license.
+
+## Review of 18 November 2026
+
+### Source
+
+- **Source:** Ruben Hassid, [Claude Phishing. The only way to bypass AI detectors](https://ruben.substack.com/p/bypass), *How to AI* (Substack), 17 November 2026, read on 18 November 2026; announced in an [X post](https://x.com/rubenhassid/status/2122661041477685489) that could not be read without signing in.
+- **Claim:** Pangram flags model output even when the prompt asks for randomness: two lists of "random" common kitchen words both scored 100% AI. Text assembled only from sentences copied out of Wikipedia revisions saved before 29 November 2022 scored as human. The author concludes that detectors cannot be bypassed by prompting, that the copy method is plagiarism and copyright infringement, and that the goal is writing that reads well even if a detector flags it.
+- **Limit:** A newsletter demonstration with screenshots and one detector, not a measured study.
+
+### Adopted
+
+- **Human control** (`scripts/human_control.py`, `tests/human_control.json`): the source's idea that text saved before ChatGPT is human-written, used to measure the linter's false positives instead of to evade a detector. This was the "human-control corpus" deferred on 7 November. The corpus is 35 Wikipedia revisions saved before 30 November 2022 (20 English, 15 Russian; encyclopedic prose on business, law, technology and everyday topics), pinned by revision id. Only identifiers are committed; the text is fetched and cached outside the repository.
+- **The predictable pick** (`patterns.md` → Concrete language): a model fills an open slot with its most probable choice, which is what the source's random-list test shows.
+
+### Measurement
+
+Run on 18 November 2026 over 101,316 English and 37,451 Russian words:
+
+| Label | English per 1,000 words | Russian per 1,000 words |
+|---|---|---|
+| `assistant residue`, `chatbot artifact` (blocking) | 0 | 0 |
+| `formulaic contrast` / `russian formulaic contrast` | 0.42 (43) | 1.34 (50) |
+| `generic authority` | 0.03 (3, "research shows") | 0 |
+| `chatbot residue` | 0.02 (2, "it is important to note") | 0 |
+| `russian bureaucratic padding` | — | 0.05 (2, «на сегодняшний день») |
+| `russian metacommentary` | — | 0.03 (1, «следует отметить») |
+
+The two blocking labels found nothing in human text. Every other label fires in it: one `not X but Y` or «не X, а Y» is ordinary expository prose, and "it is important to note" appears in pre-2022 Wikipedia, so `chatbot residue` must stay a review candidate. Encyclopedic prose is one genre; the rates do not transfer to correspondence or marketing copy.
+
+### Not adopted
+
+Building text from copied human sentences to pass a detector. It is plagiarism, it infringes the copyright and attribution terms of the copied text, and it cannot say what the author means, which conflicts with this skill's fidelity rules. Lowering detector scores remains out of scope (see Review of 7 November 2026 → Not adopted).
+

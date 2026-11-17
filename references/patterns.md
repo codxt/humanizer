@@ -16,6 +16,8 @@ Customer-facing repeat-back test: could a normal buyer explain the sentence to a
 
 Say what a thing does rather than how it feels. `The database stays close at hand` names a feeling; `a column rename fails the build` names the mechanism. If a sentence cannot be restated as a concrete instruction, fact, or number, or could appear unchanged in another project's documents, it says nothing about this one: make it specific from the source or cut it.
 
+Review the predictable pick. Asked for anything open-ended, a model fills the slot with its most probable choice: the stock example, the expected list item, the first metaphor for the topic, the same three benefits every page names. Even a request for "random" common words returns a list that a detector recognizes as machine-made. When an example, list item, or comparison is one any writer on the topic would reach for first, replace it with the specific one the source supplies, or cut it. Do not invent an unusual one to look less predictable.
+
 Review abstract metaphor nouns that sound technical but hide a plainer word: `substrate`, `locus`, `nexus`, `bedrock`, `north star`, `flywheel`, `wedge`, `vantage`, and `scaffolding`, `harness`, or `ratchet` used as metaphors. Keep a term when the target document defines it or uses it as accepted terminology.
 
 ## Empty framing and chatbot residue
@@ -34,7 +36,7 @@ Cut unsupported claims that something is a turning point, broader trend, major s
 
 ## Formulaic contrast and manufactured rhythm
 
-Reduce repeated `not X, but Y`, `not just X`, `not only X`, and similar rhetorical contrast when the distinction itself is not necessary.
+Reduce repeated `not X, but Y`, `not just X`, `not only X`, and similar rhetorical contrast when the distinction itself is not necessary. One instance is ordinary: in pre-2022 Wikipedia prose the linter finds about 0.4 per 1,000 words in English and 1.3 in Russian (`references/research.md` of the codxt/humanizer repository → Review of 18 November 2026). Judge repetition and function, not a single match.
 
 Check the same pattern across sentences and paragraphs, including `не X, а Y`, `дело не в X`, and negative tails. Keep both halves when they distinguish real alternatives, correct a documented misconception, or preserve a boundary the reader needs. Remove an imagined objection only when no material claim is lost; preserve an actual refusal or disagreement.
 
