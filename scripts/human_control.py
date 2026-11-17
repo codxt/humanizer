@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import importlib.util
 import os
 import tempfile
@@ -82,6 +83,8 @@ class ProseExtractor(HTMLParser):
             return
         elif tag == "blockquote":
             self.quote_depth += 1
+        elif tag == "q" and self.in_paragraph:
+            self._current.append("“")  # keep an inline quotation visible to the linter
         elif tag == "p":
             self.in_paragraph = True
             self._paragraph_quoted = bool(self.quote_depth)
@@ -97,6 +100,8 @@ class ProseExtractor(HTMLParser):
         if tag in self.SKIP:
             if self.skip_depth:
                 self.skip_depth -= 1
+        elif tag == "q" and self.in_paragraph and not self.skip_depth:
+            self._current.append("”")
         elif tag == "blockquote" and not self.skip_depth:
             self.quote_depth = max(0, self.quote_depth - 1)
         elif tag == "p" and self.in_paragraph and not self.skip_depth:
@@ -189,9 +194,10 @@ def _api(host: str, **params) -> dict:
                 raise
             time.sleep(_retry_after(exc.headers.get("Retry-After"), attempt))
             continue
-        except OSError:
+        except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
+            # a dropped connection or truncated body is a network failure (exit 2), not a lint result
             if last:
-                raise
+                raise OSError(f"{host}: {type(exc).__name__}: {exc}") from exc
             time.sleep(_retry_after(None, attempt))
             continue
         if not isinstance(payload, dict):
@@ -259,7 +265,8 @@ def resolve(host: str, title: str) -> dict:
     return entry
 
 
-CACHE_FORMAT = "v3"  # earlier formats are ignored
+# Bump with any change to extraction: a render from an older extractor must not be reused.
+CACHE_FORMAT = "v4"  # v4: blockquotes and <q> keep their quotation marks
 
 
 def cache_dir(cache: Path) -> Path:

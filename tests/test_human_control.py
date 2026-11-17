@@ -45,6 +45,19 @@ class ExtractProseTests(unittest.TestCase):
                                    fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
         self.assertEqual(code, 0)
 
+    def test_inline_q_stays_quoted_through_measurement(self):
+        html = "<p>The sign read <q>hope this helps</q> in red.</p>"
+        prose = control.extract_prose(html)
+        self.assertEqual(prose, "The sign read “hope this helps” in red.\n")
+        with tempfile.TemporaryDirectory() as directory:
+            control.store(Path(directory), entry(), prose)
+            control.store(Path(directory), entry(revid=2), control.extract_prose("<p>Hope this helps.</p>"))
+            out = io.StringIO()
+            code = control.measure([entry(), entry(revid=2)], Path(directory), offline=True,
+                                   fail_on=set(control.DEFAULT_FAIL_ON), out=out)
+        self.assertEqual(code, 1)
+        self.assertIn("Unquoted blocking matches in human text: 1", out.getvalue())
+
     def test_strips_russian_footnote_marks_and_entities(self):
         html = "<p>Чай&nbsp;&mdash; напиток[нет АИ].</p>"
         self.assertEqual(control.extract_prose(html), "Чай — напиток.\n")
@@ -171,6 +184,11 @@ def responses(*payloads):
     return mock.patch.object(control.urllib.request, "urlopen", side_effect=fake)
 
 
+def http_client_incomplete():
+    import http.client
+    return http.client.IncompleteRead(b"{}", 98)
+
+
 def meta(revid, timestamp):
     return {"query": {"pages": {"1": {"title": "Sample", "revisions": [
         {"revid": revid, "timestamp": timestamp}]}}}}
@@ -256,6 +274,15 @@ class NetworkGuardTests(unittest.TestCase):
             control.fetch_revision(entry())
         self.assertIn(mock.call(60.0), self.sleep.call_args_list)
 
+    def test_truncated_response_is_a_network_failure_exit_2(self):
+        truncated = http_client_incomplete()
+        with responses(truncated, truncated, truncated, truncated) as urlopen, \
+                redirect_stderr(io.StringIO()) as err, redirect_stdout(io.StringIO()):
+            code = control.main(["human_control.py", "--resolve", "en.wikipedia.org", "Tea"])
+        self.assertEqual(code, 2)
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertIn("IncompleteRead", err.getvalue())
+
     def test_empty_pages_exits_2_without_traceback(self):
         with responses({"query": {"pages": {}}}), redirect_stderr(io.StringIO()) as err, \
                 redirect_stdout(io.StringIO()):
@@ -282,6 +309,16 @@ class CacheIntegrityTests(unittest.TestCase):
             path = control.store(Path(directory), entry(),
                                  "Opening paragraph.\n\nThe host said: hope this helps.\n")
             path.write_text("Opening paragraph.\n", encoding="utf-8")  # interrupted rewrite
+            self.assertIsNone(control.load(Path(directory), entry()))
+            with self.assertRaises(FileNotFoundError):
+                self.measure_offline(Path(directory))
+
+    def test_render_from_an_older_extractor_is_ignored(self):
+        text = "Hope this helps.\n"  # a v3 render lost the blockquote marker
+        with tempfile.TemporaryDirectory() as directory:
+            old = Path(directory) / "v3" / f"en-1.{control._digest(text.encode())}.md"
+            old.parent.mkdir()
+            old.write_text(text, encoding="utf-8")
             self.assertIsNone(control.load(Path(directory), entry()))
             with self.assertRaises(FileNotFoundError):
                 self.measure_offline(Path(directory))
