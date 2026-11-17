@@ -36,7 +36,7 @@ Cut unsupported claims that something is a turning point, broader trend, major s
 
 ## Formulaic contrast and manufactured rhythm
 
-Reduce repeated `not X, but Y`, `not just X`, `not only X`, and similar rhetorical contrast when the distinction itself is not necessary. One instance is ordinary: in pre-2022 Wikipedia prose the linter finds about 0.4 per 1,000 words in English and 1.3 in Russian (`references/research.md` of the codxt/humanizer repository → Review of 18 November 2026). Judge repetition and function, not a single match.
+Reduce repeated `not X, but Y`, `not just X`, `not only X`, and similar rhetorical contrast when the distinction itself is not necessary. One instance is ordinary: in Wikipedia prose saved before ChatGPT's release the linter finds about 0.4 per 1,000 words in English and 1.3 in Russian (`references/research.md` of the codxt/humanizer repository → Review of 18 November 2026). Judge repetition and function, not a single match.
 
 Check the same pattern across sentences and paragraphs, including `не X, а Y`, `дело не в X`, and negative tails. Keep both halves when they distinguish real alternatives, correct a documented misconception, or preserve a boundary the reader needs. Remove an imagined objection only when no material claim is lost; preserve an actual refusal or disagreement.
 

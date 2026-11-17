@@ -6,11 +6,13 @@ Usage:
     python3 -S scripts/human_control.py --resolve HOST TITLE
 
 The manifest (default `tests/human_control.json`) pins Wikipedia revisions saved before
-ChatGPT's public release on 30 November 2022, so every word in them was written by people.
+ChatGPT's public release on 30 November 2022, a proxy for human-written text: the article
+source predates ChatGPT, while templates are rendered as of the fetch.
 The script fetches each pinned revision once through the MediaWiki API, keeps only paragraph
 prose (no tables, lists, captions, footnote marks or formulas), and caches it outside the
-repository: the article text is CC BY-SA and is never committed here. A cached file counts
-only when its `.sha256` completion record matches, so a partial write is fetched again. It then runs
+repository: the article text is CC BY-SA and is never committed here. A cached file's name
+carries the SHA-256 of its bytes and counts only when they match, so a partial write is fetched
+again; the linter reads a private copy of the verified bytes. It then runs
 `prose_lint.py` over every article and reports each label's matches per 1,000 words, by language.
 
 An unquoted match on a blocking label (`assistant residue` and `chatbot artifact` by default)
@@ -250,15 +252,15 @@ def resolve(host: str, title: str) -> dict:
     return entry
 
 
-CACHE_FORMAT = "v2"  # files from earlier formats carry no completion record and are ignored
+CACHE_FORMAT = "v3"  # earlier formats are ignored
 
 
-def cache_path(cache: Path, entry: dict) -> Path:
-    return cache / CACHE_FORMAT / f"{HOSTS[entry['host']]}-{entry['revid']}.md"
+def cache_dir(cache: Path) -> Path:
+    return cache / CACHE_FORMAT
 
 
-def _record_path(path: Path) -> Path:
-    return path.with_name(path.name + ".sha256")
+def _stem(entry: dict) -> str:
+    return f"{HOSTS[entry['host']]}-{entry['revid']}"
 
 
 def _digest(data: bytes) -> str:
@@ -278,21 +280,37 @@ def _write_atomic(path: Path, data: bytes) -> None:
         raise
 
 
-def store(path: Path, text: str) -> None:
-    """Publish the text, then its completion record; a reader trusts the text only if they match."""
+def store(cache: Path, entry: dict, text: str) -> Path:
+    """Publish the text under a name that carries its own SHA-256, in one atomic rename, so
+    text and checksum can never come from different writers."""
     data = text.encode("utf-8")
+    path = cache_dir(cache) / f"{_stem(entry)}.{_digest(data)}.md"
     _write_atomic(path, data)
-    _write_atomic(_record_path(path), (_digest(data) + "\n").encode("ascii"))
+    return path
 
 
-def load(path: Path) -> str | None:
-    """The cached text if it is complete (its record matches), otherwise None."""
-    try:
-        data = path.read_bytes()
-        record = _record_path(path).read_text(encoding="ascii").strip()
-    except (FileNotFoundError, UnicodeError):
-        return None
-    return data.decode("utf-8") if record == _digest(data) else None
+def load(cache: Path, entry: dict) -> str | None:
+    """Text of a cached copy whose bytes match the checksum in its name, otherwise None."""
+    for path in sorted(cache_dir(cache).glob(f"{_stem(entry)}.*.md")):
+        name_digest = path.name[len(_stem(entry)) + 1:-len(".md")]
+        try:
+            data = path.read_bytes()
+        except FileNotFoundError:
+            continue
+        if name_digest == _digest(data):
+            try:
+                return data.decode("utf-8")
+            except UnicodeError:
+                continue
+    return None
+
+
+def _lint_text(text: str) -> list[tuple[int, str, str, bool]]:
+    """Lint exactly these verified bytes from a private copy, not the shared cache file."""
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "revision.md"
+        path.write_text(text, encoding="utf-8")
+        return prose_lint.lint_detailed(path)
 
 
 def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str], out=sys.stdout) -> int:
@@ -303,21 +321,19 @@ def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str
     blocking: list[str] = []
     for entry in entries:
         check_entry(entry)
-        path = cache_path(cache, entry)
-        text = load(path)
+        text = load(cache, entry)
         if text is None:
             if offline:
-                raise FileNotFoundError(f"{path}: not cached or incomplete; run once without --offline")
-            store(path, fetch_revision(entry))
-            text = load(path)
-            if text is None:
-                raise ValueError(f"{path}: cache write did not verify; run again")
+                raise FileNotFoundError(f"{cache_dir(cache) / _stem(entry)}: not cached or incomplete; "
+                                        "run once without --offline")
+            text = fetch_revision(entry)
+            store(cache, entry, text)
         count = word_count(text)
         if not count:
-            raise ValueError(f"{path}: cached text has no words; delete it and fetch again")
+            raise ValueError(f"{entry['title']} ({entry['revid']}): cached text has no words")
         language = HOSTS[entry["host"]]
         words[language] += count
-        for line, label, excerpt, quoted in prose_lint.lint_detailed(path):
+        for line, label, excerpt, quoted in _lint_text(text):
             matches[language][label] += 1
             if label in fail_on and not quoted:
                 blocking.append(f"{entry['title']} ({entry['revid']}) L{line}: {label}: {excerpt}")

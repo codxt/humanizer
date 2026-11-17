@@ -56,7 +56,7 @@ The linked articles and upstream projects remain on their respective websites. T
 
 - **Editorial candidates:** Identify clusters of repeated scaffolding, overclaiming, canned transitions, decorative contrast, and unnecessary narration while preserving meaningful structure and native usage. See [patterns.md](patterns.md) and [language.md](language.md).
 - **Fidelity controls:** Compare source and edit in both directions, protecting actors, commitments, status, conditionality, deadlines, attribution, uncertainty, and stance. See [work-fidelity.md](work-fidelity.md).
-- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The human control (added 18 November 2026) measures how often each lint label fires on human writing from before ChatGPT. The repository includes **216 automated tests** (85 for the linter, 96 for the fidelity check, 35 for the human control) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
+- **Verification:** The deterministic linter reports possible style issues; it cannot prove that meaning was preserved. The mechanical fidelity check (added 7 November 2026) compares meaning-bearing items between source and edit; it cannot see tense, aspect, moved conditions, or actor changes without a pronoun. The human control (added 18 November 2026) measures how often each lint label fires on human writing from before ChatGPT. The repository includes **218 automated tests** (85 for the linter, 96 for the fidelity check, 37 for the human control) and **12 manual semantic regression cases**, which are bounded checks, not a universal fidelity or legal-safety certification.
 
 ## Use and attribution
 
@@ -158,7 +158,7 @@ Run on 18 November 2026 over 101,316 English and 37,451 Russian words (Unicode `
 | `russian bureaucratic padding` | — | 0.05 (2, «на сегодняшний день») |
 | `russian metacommentary` | — | 0.03 (1, «следует отметить») |
 
-The two blocking labels found nothing outside quotations in this sample. Six review labels fired, listed above; the others found nothing, and URL and structural labels are barely exercised because extraction keeps paragraph text only. One `not X but Y` or «не X, а Y» is ordinary expository prose, and "it is important to note" appears in pre-2022 Wikipedia, so `chatbot residue` must stay a review candidate. Encyclopedic prose is one genre; the rates do not transfer to correspondence or marketing copy.
+The two blocking labels found nothing outside quotations in this sample. Six review labels fired, listed above; the others found nothing, and URL and structural labels are barely exercised because extraction keeps paragraph text only. One `not X but Y` or «не X, а Y» is ordinary expository prose, and "it is important to note" appears in Wikipedia revisions saved before ChatGPT, so `chatbot residue` must stay a review candidate. Encyclopedic prose is one genre; the rates do not transfer to correspondence or marketing copy.
 
 ### Not adopted
 

@@ -95,7 +95,7 @@ class MeasureTests(unittest.TestCase):
             entries = []
             for number, (host, text) in enumerate(texts, 1):
                 item = entry(host=host, revid=number, title=f"T{number}")
-                control.store(control.cache_path(cache, item), text)
+                control.store(cache, item, text)
                 entries.append(item)
             out = io.StringIO()
             code = control.measure(entries, cache, offline=True,
@@ -190,7 +190,7 @@ class NetworkGuardTests(unittest.TestCase):
     def test_cached_file_without_words_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory:
             item = entry()
-            control.store(control.cache_path(Path(directory), item), "\n")
+            control.store(Path(directory), item, "\n")
             with self.assertRaises(ValueError):
                 control.measure([item], Path(directory), offline=True,
                                 fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
@@ -222,8 +222,9 @@ class NetworkGuardTests(unittest.TestCase):
                 code = control.measure([entry()], Path(directory), offline=False,
                                        fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
             self.assertEqual(code, 0)
-            self.assertEqual(sorted(p.name for p in (Path(directory) / "v2").iterdir()),
-                             ["en-1.md", "en-1.md.sha256"])
+            names = [p.name for p in control.cache_dir(Path(directory)).iterdir()]
+            digest = control._digest(b"Tea is a drink.\n")
+            self.assertEqual(names, [f"en-1.{digest}.md"])
 
     def test_api_error_is_reported_not_retried(self):
         with responses({"error": {"code": "nosuchrevid", "info": "no revision"}}) as urlopen:
@@ -266,34 +267,56 @@ class CacheIntegrityTests(unittest.TestCase):
         return control.measure([entry()], cache, offline=True,
                                fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
 
-    def test_truncated_text_with_stale_record_is_not_trusted(self):
+    def test_truncated_text_is_not_trusted(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = control.cache_path(Path(directory), entry())
-            control.store(path, "Opening paragraph.\n\nThe host said: hope this helps.\n")
+            path = control.store(Path(directory), entry(),
+                                 "Opening paragraph.\n\nThe host said: hope this helps.\n")
             path.write_text("Opening paragraph.\n", encoding="utf-8")  # interrupted rewrite
-            self.assertIsNone(control.load(path))
+            self.assertIsNone(control.load(Path(directory), entry()))
             with self.assertRaises(FileNotFoundError):
                 self.measure_offline(Path(directory))
 
-    def test_old_format_file_without_record_is_ignored(self):
+    def test_old_format_files_are_ignored(self):
         with tempfile.TemporaryDirectory() as directory:
-            (Path(directory) / "en-1.md").write_text("Opening paragraph.\n", encoding="utf-8")
-            path = control.cache_path(Path(directory), entry())
-            path.parent.mkdir()
-            path.write_text("Opening paragraph.\n", encoding="utf-8")
+            for old in ("en-1.md", "v2/en-1.md"):
+                (Path(directory) / old).parent.mkdir(exist_ok=True)
+                (Path(directory) / old).write_text("Opening paragraph.\n", encoding="utf-8")
+            (Path(directory) / "v2/en-1.md.sha256").write_text(
+                control._digest(b"Opening paragraph.\n") + "\n", encoding="ascii")
             with self.assertRaises(FileNotFoundError):
                 self.measure_offline(Path(directory))
 
     def test_incomplete_cache_is_fetched_again_online(self):
         parsed = {"parse": {"revid": 1, "text": {"*": "<p>The host said: hope this helps.</p>"}}}
         with tempfile.TemporaryDirectory() as directory:
-            path = control.cache_path(Path(directory), entry())
-            path.parent.mkdir()
-            path.write_text("Opening.\n", encoding="utf-8")
+            path = control.store(Path(directory), entry(), "Opening.\n")
+            path.write_text("Open\n", encoding="utf-8")
             with mock.patch.object(control.time, "sleep"), responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
                 code = control.measure([entry()], Path(directory), offline=False,
                                        fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
             self.assertEqual(code, 1)
+
+    def test_interleaved_writers_leave_a_usable_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            control.store(cache, entry(), "Render A.\n")   # same revision, two renders
+            control.store(cache, entry(), "Render B.\n")
+            self.assertIn(control.load(cache, entry()), {"Render A.\n", "Render B.\n"})
+            self.measure_offline(cache)
+
+    def test_file_replaced_after_verification_is_not_linted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            path = control.store(cache, entry(), "The host said: hope this helps.\n")
+            real_load = control.load
+
+            def load_then_swap(*args):
+                text = real_load(*args)
+                path.write_text("Clean text.\n", encoding="utf-8")  # concurrent replacement
+                return text
+
+            with mock.patch.object(control, "load", side_effect=load_then_swap):
+                self.assertEqual(self.measure_offline(cache), 1)
 
     def test_each_writer_uses_its_own_temporary_file(self):
         sources = []
@@ -305,11 +328,11 @@ class CacheIntegrityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(control.os, "replace", side_effect=spy):
-            path = Path(directory) / "v2" / "en-1.md"
+            path = Path(directory) / "v3" / "en-1.x.md"
             control._write_atomic(path, b"first")
             control._write_atomic(path, b"second")
             self.assertEqual(path.read_bytes(), b"second")
-            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["en-1.md"])
+            self.assertEqual(sorted(p.name for p in path.parent.iterdir()), ["en-1.x.md"])
         self.assertEqual(len(set(sources)), 2)
 
 

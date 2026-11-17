@@ -81,7 +81,7 @@ python3 -S scripts/human_control.py --offline
 python3 -S scripts/human_control.py --resolve en.wikipedia.org "Tea"
 ```
 
-Humanizer edits for the reader, not for AI detectors, and does not claim that an edited draft will pass one. The detector-bypass method reviewed on 18 November 2026 assembles text from copied human sentences, which is plagiarism and cannot say what the author means; it was not adopted. See `references/research.md` → Review of 18 November 2026.
+Humanizer edits for the reader, not for AI detectors, and does not claim that an edited draft will pass one. The detector-bypass prompt reviewed on 18 November 2026 tells a model to assemble text only from copied human sentences, which passes off other people's writing and cannot say what the author means; it was not adopted. See `references/research.md` → Review of 18 November 2026.
 
 ## Research and references
 
