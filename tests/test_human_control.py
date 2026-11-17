@@ -5,7 +5,9 @@ import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,18 @@ class ExtractProseTests(unittest.TestCase):
         self.assertEqual(control.extract_prose(html), "Чай — напиток.\n")
 
 
+    def test_skipped_paragraph_does_not_close_the_open_one(self):
+        html = "<p>Before <figure><p>Caption</p></figure>after the figure.</p>"
+        self.assertEqual(control.extract_prose(html), "Before after the figure.\n")
+
+    def test_line_break_separates_words(self):
+        for html in ("<p>First<br>Second.</p>", "<p>First<br/>Second.</p>"):
+            self.assertEqual(control.extract_prose(html), "First Second.\n")
+
+    def test_word_count_counts_unicode_word_runs(self):
+        self.assertEqual(control.word_count("don't 3.14 state-of-the-art"), 8)
+
+
 class ManifestTests(unittest.TestCase):
     def test_pinned_manifest_predates_cutoff(self):
         manifest = json.loads((ROOT / "tests" / "human_control.json").read_text(encoding="utf-8"))
@@ -54,6 +68,12 @@ class ManifestTests(unittest.TestCase):
         for stamp in (control.CUTOFF, "2023-01-01T00:00:00Z"):
             with self.assertRaises(ValueError):
                 control.check_entry(entry(timestamp=stamp))
+
+    def test_rejects_malformed_timestamp_and_revid(self):
+        for bad in ({"timestamp": ""}, {"timestamp": "2022-11-01"}, {"revid": 0},
+                    {"revid": "1"}, {"revid": True}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                control.check_entry(entry(**bad))
 
     def test_rejects_unknown_host_and_missing_field(self):
         with self.assertRaises(ValueError):
@@ -88,7 +108,7 @@ class MeasureTests(unittest.TestCase):
         self.assertIn("formulaic contrast: 1 (83.33 per 1,000 words)", report)
         self.assertIn("[ru] 6 words", report)
         self.assertIn("russian formulaic contrast: 1 (166.67 per 1,000 words)", report)
-        self.assertIn("Blocking matches in human text: 0", report)
+        self.assertIn("Unquoted blocking matches in human text: 0", report)
 
     def test_blocking_label_in_human_text_fails(self):
         code, report = self.run_measure([("en.wikipedia.org", "The host said: hope this helps.\n")])
@@ -107,10 +127,133 @@ class MeasureTests(unittest.TestCase):
 
     def test_cli_rejects_unknown_label(self):
         err = io.StringIO()
-        from contextlib import redirect_stderr
         with redirect_stderr(err):
             self.assertEqual(control.main(["human_control.py", "--offline", "--fail-on", "nope"]), 2)
         self.assertIn("unknown label", err.getvalue())
+
+
+class FakeResponse(io.BytesIO):
+    def __init__(self, payload, headers=None):
+        super().__init__(json.dumps(payload).encode())
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def responses(*payloads):
+    """Patch urlopen to return the payloads in order and never touch the network."""
+    queue = list(payloads)
+
+    def fake(request, timeout=None):
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return FakeResponse(item)
+
+    return mock.patch.object(control.urllib.request, "urlopen", side_effect=fake)
+
+
+def meta(revid, timestamp):
+    return {"query": {"pages": {"1": {"title": "Sample", "revisions": [
+        {"revid": revid, "timestamp": timestamp}]}}}}
+
+
+class NetworkGuardTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(control.time, "sleep")
+        self.sleep = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_offline_and_resolve_are_exclusive_and_make_no_request(self):
+        with responses() as urlopen, redirect_stderr(io.StringIO()):
+            code = control.main(["human_control.py", "--offline", "--resolve", "en.wikipedia.org", "Tea"])
+        self.assertEqual(code, 2)
+        urlopen.assert_not_called()
+
+    def test_empty_manifest_is_an_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "m.json"
+            manifest.write_text(json.dumps({"cutoff": control.CUTOFF, "revisions": []}))
+            with redirect_stderr(io.StringIO()):
+                code = control.main(["human_control.py", "--offline", "--manifest", str(manifest),
+                                     "--cache", directory])
+        self.assertEqual(code, 2)
+
+    def test_cached_file_without_words_is_an_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            item = entry()
+            control.cache_path(Path(directory), item).write_text("\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                control.measure([item], Path(directory), offline=True,
+                                fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+
+    def test_fetch_rejects_a_different_revision(self):
+        with responses(meta(2, "2022-11-01T00:00:00Z")):
+            with self.assertRaises(ValueError):
+                control.fetch_revision(entry())
+
+    def test_fetch_rejects_parse_of_a_different_revision(self):
+        parsed = {"parse": {"revid": 2, "text": {"*": "<p>Text.</p>"}}}
+        with responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
+            with self.assertRaises(ValueError):
+                control.fetch_revision(entry())
+
+    def test_fetch_rejects_revision_without_prose_and_caches_nothing(self):
+        parsed = {"parse": {"revid": 1, "text": {"*": "<table><tr><td>x</td></tr></table>"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            with responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
+                with self.assertRaises(ValueError):
+                    control.measure([entry()], Path(directory), offline=False,
+                                    fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_fetch_writes_cache_and_measures(self):
+        parsed = {"parse": {"revid": 1, "text": {"*": "<p>Tea is a drink.</p>"}}}
+        with tempfile.TemporaryDirectory() as directory:
+            with responses(meta(1, "2022-11-01T00:00:00Z"), parsed):
+                code = control.measure([entry()], Path(directory), offline=False,
+                                       fail_on=set(control.DEFAULT_FAIL_ON), out=io.StringIO())
+            self.assertEqual(code, 0)
+            self.assertEqual([p.name for p in Path(directory).iterdir()], ["en-1.md"])
+
+    def test_api_error_is_reported_not_retried(self):
+        with responses({"error": {"code": "nosuchrevid", "info": "no revision"}}) as urlopen:
+            with self.assertRaises(ValueError):
+                control.fetch_revision(entry())
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_rate_limit_error_is_retried(self):
+        with responses({"error": {"code": "ratelimited"}}, meta(1, "2022-11-01T00:00:00Z"),
+                       {"parse": {"revid": 1, "text": {"*": "<p>Tea.</p>"}}}) as urlopen:
+            self.assertEqual(control.fetch_revision(entry()), "Tea.\n")
+        self.assertEqual(urlopen.call_count, 3)
+
+    def test_http_429_honors_retry_after(self):
+        throttled = control.urllib.error.HTTPError("u", 429, "Too Many Requests",
+                                                   {"Retry-After": "60"}, None)
+        with responses(throttled, meta(1, "2022-11-01T00:00:00Z"),
+                       {"parse": {"revid": 1, "text": {"*": "<p>Tea.</p>"}}}):
+            control.fetch_revision(entry())
+        self.assertIn(mock.call(60.0), self.sleep.call_args_list)
+
+    def test_empty_pages_exits_2_without_traceback(self):
+        with responses({"query": {"pages": {}}}), redirect_stderr(io.StringIO()) as err, \
+                redirect_stdout(io.StringIO()):
+            code = control.main(["human_control.py", "--resolve", "en.wikipedia.org", "Tea"])
+        self.assertEqual(code, 2)
+        self.assertIn("malformed API response", err.getvalue())
+
+    def test_resolve_asks_for_revisions_strictly_before_cutoff(self):
+        with responses(meta(5, "2022-11-29T23:59:59Z")) as urlopen:
+            found = control.resolve("en.wikipedia.org", "Sample")
+        self.assertEqual(found["revid"], 5)
+        self.assertIn("rvstart=2022-11-29T23%3A59%3A59Z", urlopen.call_args.args[0].full_url)
+        with responses(meta(6, control.CUTOFF)), self.assertRaises(ValueError):
+            control.resolve("en.wikipedia.org", "Sample")
 
 
 if __name__ == "__main__":

@@ -12,13 +12,16 @@ prose (no tables, lists, captions, footnote marks or formulas), and caches it ou
 repository: the article text is CC BY-SA and is never committed here. It then runs
 `prose_lint.py` over every article and reports each label's matches per 1,000 words, by language.
 
-A match on a blocking label (`assistant residue` and `chatbot artifact` by default) in this
-corpus is a false positive in human prose: exit 1. Every other label is a review candidate,
-and its rate here is the human baseline to compare a draft's density against. A clean run says
-nothing about a label's precision on other genres, and a match rate is not an authorship test.
+An unquoted match on a blocking label (`assistant residue` and `chatbot artifact` by default)
+in this corpus is a false positive in human prose: exit 1. Every other label is a review candidate,
+and its rate here is an observation for this sample of rendered encyclopedic paragraphs, not a
+baseline for other genres. Paragraph extraction drops links, lists and headings, so URL and
+structural labels are barely exercised. A match rate is not an authorship test. Words are
+Unicode `\\w+` runs. A pinned revision fixes the article text; templates are rendered as of the fetch.
 
-Network use is opt-in: tests never call this module's fetch path. `--offline` reads only the
-cache. `--resolve HOST TITLE` prints a manifest entry for the last revision before the cutoff.
+Tests never touch the network. `--offline` reads only the cache and cannot be combined with
+`--resolve`. Cache files are written atomically; an empty manifest or a cached file without words
+is an error. `--resolve HOST TITLE` prints a manifest entry for the last revision before the cutoff.
 Exit codes: 0 clean, 1 blocking match in human text, 2 error (missing cache entry, a pinned
 revision saved after the cutoff, network failure).
 """
@@ -31,6 +34,7 @@ import json
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter, defaultdict
@@ -64,14 +68,23 @@ class ProseExtractor(HTMLParser):
     def handle_starttag(self, tag: str, attrs) -> None:
         if tag in self.SKIP:
             self.skip_depth += 1
-        elif tag == "p" and not self.skip_depth:
+        elif self.skip_depth:
+            return
+        elif tag == "p":
             self.in_paragraph = True
             self._current = []
+        elif tag == "br" and self.in_paragraph:
+            self._current.append(" ")
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        if tag == "br" and self.in_paragraph and not self.skip_depth:
+            self._current.append(" ")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in self.SKIP and self.skip_depth:
-            self.skip_depth -= 1
-        elif tag == "p" and self.in_paragraph:
+        if tag in self.SKIP:
+            if self.skip_depth:
+                self.skip_depth -= 1
+        elif tag == "p" and self.in_paragraph and not self.skip_depth:
             self.in_paragraph = False
             text = " ".join("".join(self._current).split())
             if text:
@@ -83,6 +96,10 @@ class ProseExtractor(HTMLParser):
 
 
 FOOTNOTE_MARK = re.compile(r"\[(?:\d+|[a-z]|citation needed|нет АИ|источник не указан \d+ дней)\]")
+TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+LAST_BEFORE_CUTOFF = "2022-11-29T23:59:59Z"  # rvstart is inclusive, so start one second earlier
+RETRY_CODES = {"ratelimited", "maxlag", "readonly"}
+MAX_RETRY_WAIT = 120
 
 
 def extract_prose(html: str) -> str:
@@ -94,66 +111,136 @@ def extract_prose(html: str) -> str:
 
 
 def word_count(text: str) -> int:
+    """Count Unicode `\\w+` runs: `don't 3.14 state-of-the-art` is eight words."""
     return len(re.findall(r"\w+", text))
 
 
 def check_entry(entry: dict) -> None:
+    if not isinstance(entry, dict):
+        raise ValueError(f"manifest entry is not an object: {entry!r}")
     for key in ("host", "title", "revid", "timestamp"):
         if key not in entry:
             raise ValueError(f"manifest entry missing {key!r}: {entry}")
     if entry["host"] not in HOSTS:
         raise ValueError(f"unsupported host {entry['host']!r}; known: {', '.join(HOSTS)}")
-    if not entry["timestamp"] < CUTOFF:
-        raise ValueError(f"{entry['title']} revision {entry['revid']} was saved at "
-                         f"{entry['timestamp']}, not before {CUTOFF}")
+    revid = entry["revid"]
+    if isinstance(revid, bool) or not isinstance(revid, int) or revid <= 0:
+        raise ValueError(f"{entry['title']}: revid must be a positive integer, not {revid!r}")
+    stamp = entry["timestamp"]
+    if not isinstance(stamp, str) or not TIMESTAMP.fullmatch(stamp):
+        raise ValueError(f"{entry['title']}: timestamp {stamp!r} is not YYYY-MM-DDTHH:MM:SSZ")
+    if not stamp < CUTOFF:
+        raise ValueError(f"{entry['title']} revision {revid} was saved at {stamp}, not before {CUTOFF}")
+
+
+def _retry_after(value: str | None, attempt: int) -> float:
+    try:
+        return min(float(value), MAX_RETRY_WAIT) if value else 10.0 * (attempt + 1)
+    except ValueError:
+        return 10.0 * (attempt + 1)
 
 
 def _api(host: str, **params) -> dict:
-    params["format"] = "json"
+    """One MediaWiki API call. Throttling is retried; any other API error raises ValueError."""
+    params.update(format="json", formatversion=1, maxlag=5)
     url = f"https://{host}/w/api.php?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    for attempt in range(3):
+    for attempt in range(4):
+        last = attempt == 3
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 payload = json.load(response)
-            time.sleep(DELAY)
-            return payload
-        except OSError:
-            if attempt == 2:
+                retry_after = response.headers.get("Retry-After")
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (429, 503) or last:
                 raise
-            time.sleep(10 * (attempt + 1))
-    raise AssertionError("unreachable")
+            time.sleep(_retry_after(exc.headers.get("Retry-After"), attempt))
+            continue
+        except OSError:
+            if last:
+                raise
+            time.sleep(_retry_after(None, attempt))
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError(f"{host}: malformed API response")
+        error = payload.get("error")
+        if error:
+            code = error.get("code", "unknown") if isinstance(error, dict) else "unknown"
+            if code in RETRY_CODES and not last:
+                time.sleep(_retry_after(retry_after, attempt))
+                continue
+            raise ValueError(f"{host}: API error {code}: {error.get('info', '') if isinstance(error, dict) else error}")
+        time.sleep(DELAY)
+        return payload
+    raise ValueError(f"{host}: API still throttled after retries")
+
+
+def _only_page(payload: dict) -> dict:
+    try:
+        pages = list(payload["query"]["pages"].values())
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("malformed API response: no query.pages") from exc
+    if len(pages) != 1 or not isinstance(pages[0], dict):
+        raise ValueError(f"malformed API response: expected one page, got {len(pages)}")
+    return pages[0]
+
+
+def _only_revision(page: dict) -> dict:
+    revisions = page.get("revisions")
+    if not isinstance(revisions, list) or len(revisions) != 1 or not isinstance(revisions[0], dict):
+        raise ValueError(f"malformed API response for {page.get('title')!r}: expected one revision")
+    return revisions[0]
 
 
 def fetch_revision(entry: dict) -> str:
-    """Return the revision's prose, confirming on the server that it predates the cutoff."""
-    meta = _api(entry["host"], action="query", prop="revisions", revids=entry["revid"],
-                rvprop="ids|timestamp")
-    page = next(iter(meta["query"]["pages"].values()))
-    timestamp = page["revisions"][0]["timestamp"]
-    if timestamp != entry["timestamp"]:
-        raise ValueError(f"{entry['title']} revision {entry['revid']}: server timestamp "
-                         f"{timestamp} differs from the manifest's {entry['timestamp']}")
+    """Return the revision's prose, confirming on the server that it is the pinned revision."""
+    revision = _only_revision(_only_page(_api(entry["host"], action="query", prop="revisions",
+                                              revids=entry["revid"], rvprop="ids|timestamp")))
+    if (revision.get("revid"), revision.get("timestamp")) != (entry["revid"], entry["timestamp"]):
+        raise ValueError(f"{entry['title']}: server returned revision {revision.get('revid')} at "
+                         f"{revision.get('timestamp')}, not {entry['revid']} at {entry['timestamp']}")
     parsed = _api(entry["host"], action="parse", oldid=entry["revid"], prop="text")
-    return extract_prose(parsed["parse"]["text"]["*"])
+    try:
+        parse = parsed["parse"]
+        returned, html = parse["revid"], parse["text"]["*"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"{entry['title']}: malformed parse response") from exc
+    if returned != entry["revid"]:
+        raise ValueError(f"{entry['title']}: parse returned revision {returned}, not {entry['revid']}")
+    prose = extract_prose(html)
+    if not word_count(prose):
+        raise ValueError(f"{entry['title']} revision {entry['revid']}: no paragraph prose")
+    return prose
 
 
 def resolve(host: str, title: str) -> dict:
-    data = _api(host, action="query", prop="revisions", titles=title, rvlimit=1, rvstart=CUTOFF,
-                rvdir="older", rvprop="ids|timestamp", redirects=1)
-    page = next(iter(data["query"]["pages"].values()))
+    page = _only_page(_api(host, action="query", prop="revisions", titles=title, rvlimit=1,
+                           rvstart=LAST_BEFORE_CUTOFF, rvdir="older", rvprop="ids|timestamp",
+                           redirects=1))
     if "revisions" not in page:
         raise ValueError(f"{title}: no revision on {host} before {CUTOFF}")
-    revision = page["revisions"][0]
-    return {"host": host, "title": page["title"], "revid": revision["revid"],
-            "timestamp": revision["timestamp"]}
+    revision = _only_revision(page)
+    entry = {"host": host, "title": page.get("title", title), "revid": revision.get("revid"),
+             "timestamp": revision.get("timestamp")}
+    check_entry(entry)
+    return entry
 
 
 def cache_path(cache: Path, entry: dict) -> Path:
     return cache / f"{HOSTS[entry['host']]}-{entry['revid']}.md"
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Publish the cache file only once it is complete, so an interrupted fetch leaves nothing."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
 def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str], out=sys.stdout) -> int:
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("manifest lists no revisions")
     words: Counter = Counter()
     matches: dict[str, Counter] = defaultdict(Counter)
     blocking: list[str] = []
@@ -163,10 +250,12 @@ def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str
         if not path.is_file():
             if offline:
                 raise FileNotFoundError(f"{path}: not cached; run once without --offline")
-            cache.mkdir(parents=True, exist_ok=True)
-            path.write_text(fetch_revision(entry), encoding="utf-8")
+            _write_atomic(path, fetch_revision(entry))
+        count = word_count(path.read_text(encoding="utf-8"))
+        if not count:
+            raise ValueError(f"{path}: cached text has no words; delete it and fetch again")
         language = HOSTS[entry["host"]]
-        words[language] += word_count(path.read_text(encoding="utf-8"))
+        words[language] += count
         for line, label, excerpt, quoted in prose_lint.lint_detailed(path):
             matches[language][label] += 1
             if label in fail_on and not quoted:
@@ -176,13 +265,12 @@ def measure(entries: list[dict], cache: Path, *, offline: bool, fail_on: set[str
     for language in sorted(words):
         print(f"\n[{language}] {words[language]} words", file=out)
         for label, count in sorted(matches[language].items(), key=lambda item: (-item[1], item[0])):
-            rate = 1000 * count / words[language] if words[language] else 0.0
-            print(f"  {label}: {count} ({rate:.2f} per 1,000 words)", file=out)
+            print(f"  {label}: {count} ({1000 * count / words[language]:.2f} per 1,000 words)", file=out)
         if not matches[language]:
             print("  no candidates", file=out)
     for finding in blocking:
         print(f"BLOCKING in human text: {finding}", file=out)
-    print(f"\nBlocking matches in human text: {len(blocking)}", file=out)
+    print(f"\nUnquoted blocking matches in human text: {len(blocking)}", file=out)
     return 1 if blocking else 0
 
 
@@ -190,11 +278,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="human_control.py")
     parser.add_argument("--manifest", type=Path, default=ROOT / "tests" / "human_control.json")
     parser.add_argument("--cache", type=Path, default=Path.home() / ".cache" / "humanizer-human-control")
-    parser.add_argument("--offline", action="store_true", help="read only the cache; never fetch")
     parser.add_argument("--fail-on", action="append", metavar="LABEL",
                         help=f"blocking label; repeatable (default: {', '.join(DEFAULT_FAIL_ON)})")
-    parser.add_argument("--resolve", nargs=2, metavar=("HOST", "TITLE"),
-                        help="print a manifest entry for the last revision before the cutoff")
+    network = parser.add_mutually_exclusive_group()
+    network.add_argument("--offline", action="store_true", help="read only the cache; never fetch")
+    network.add_argument("--resolve", nargs=2, metavar=("HOST", "TITLE"),
+                         help="print a manifest entry for the last revision before the cutoff")
     try:
         args = parser.parse_args(argv[1:])
     except SystemExit as exc:
@@ -210,9 +299,11 @@ def main(argv: list[str]) -> int:
         unknown = sorted(fail_on - prose_lint.LABELS)
         if unknown:
             raise ValueError(f"unknown label(s): {', '.join(unknown)}")
-        entries = json.loads(args.manifest.read_text(encoding="utf-8"))["revisions"]
-        return measure(entries, args.cache, offline=args.offline, fail_on=fail_on)
-    except (OSError, ValueError, KeyError) as exc:
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("cutoff") != CUTOFF:
+            raise ValueError(f"{args.manifest}: cutoff must be {CUTOFF}")
+        return measure(manifest.get("revisions"), args.cache, offline=args.offline, fail_on=fail_on)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
